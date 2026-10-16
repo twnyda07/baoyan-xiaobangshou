@@ -12,7 +12,11 @@ var esc = function (s) {
   });
 };
 
+var BUILD = '2026-10-16c';
 var BRANCHES = ['善覺', '善學', '圓道'];
+
+/** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
+function cleanPw(s) { return String(s == null ? '' : s).replace(/^[\s　]+|[\s　]+$/g, ''); }
 
 var state = { settings: {}, groups: [], members: [], devices: [], logs: [] };
 var pw = '';
@@ -1265,6 +1269,18 @@ function backendDialog() {
 $('#btnBackend').addEventListener('click', backendDialog);
 $('#btnBackend2').addEventListener('click', backendDialog);
 
+/** 進不來時的萬用解法：把這台存的東西全清掉，回到出廠設定重載 */
+$('#btnResetLocal').addEventListener('click', function () {
+  confirmBox('重置這台',
+    '會清掉這台瀏覽器存的密碼、後端網址、經手人與暫存，然後重新載入最新版網頁。\n\n雲端上的名單與紀錄完全不受影響。',
+    '清掉並重新載入', 'danger')
+    .then(function (yes) {
+      if (!yes) return;
+      try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* 無所謂 */ }
+      location.replace(location.pathname + '?v=' + Date.now());
+    });
+});
+
 /* ===================== 登入 ===================== */
 function isAuthError(e) { return e && (e.code === 'BAD_PASSWORD' || /密碼不正確/.test(e.message || '')); }
 
@@ -1277,10 +1293,11 @@ function gateMsg(text, color) {
 
 $('#gateForm').addEventListener('submit', function (e) {
   e.preventDefault();
-  var v = $('#pw').value;
+  var raw = $('#pw').value;
+  var v = cleanPw(raw);
   if (!v) return;
   $('#gateBtn').disabled = true;
-  gateMsg('核對中…');
+  gateMsg(raw !== v ? '核對中…（已自動去掉前後空白）' : '核對中…');
   pw = v;
   load()
     .then(function () {
@@ -1338,7 +1355,7 @@ function reauth() {
       {
         label: '確定', cls: 'primary',
         collect: function (b) {
-          var v = $('#raPw', b).value.trim();
+          var v = cleanPw($('#raPw', b).value);
           if (!v) { toast('請輸入密碼', true); return false; }
           return v;
         },
@@ -1362,6 +1379,12 @@ function boot() {
   }
   fillSelects();
   operator = sessionStorage.getItem('xbs_opr') || '';
+
+  // 診斷用：看得出這台連到哪個後端、跑的是哪一版
+  var url = backendUrl();
+  var override = localStorage.getItem('xbs_backend') ? '（這台自己設過網址）' : '';
+  var diag = $('#gateDiag');
+  if (diag) diag.textContent = '版本 ' + BUILD + '　·　後端 …' + (url ? url.slice(-16, -5) : '未設定') + override;
 
   if (!backendUrl()) {
     $('#gateMsg').textContent = '還沒設定後端網址，請先點下面的按鈕設定。';

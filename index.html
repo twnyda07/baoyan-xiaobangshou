@@ -22,7 +22,11 @@
       <button class="btn primary" type="submit" style="width:100%" id="gateBtn">進入系統</button>
       <p class="hint" id="gateMsg" style="min-height:1.3em"></p>
     </div>
-    <button type="button" class="btn ghost sm" id="btnBackend" style="color:var(--ink-3)">設定後端網址</button>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <button type="button" class="btn ghost sm" id="btnBackend" style="color:var(--ink-3)">設定後端網址</button>
+      <button type="button" class="btn ghost sm" id="btnResetLocal" style="color:var(--ink-3)">進不來？重置這台</button>
+    </div>
+    <p class="hint" id="gateDiag" style="margin-top:14px;font-size:.76rem;color:var(--ink-3)"></p>
   </form>
 </div>
 
