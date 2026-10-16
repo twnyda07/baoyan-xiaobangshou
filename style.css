@@ -132,6 +132,11 @@ table.daytab tr:last-child td { border-bottom: none; }
 .rost-l { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 150px; flex: 1; }
 .daystrip { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; padding: 3px; border-radius: 10px; }
 .daystrip.changed { background: var(--warn-soft); outline: 1px solid #e5d5ae; }
+.daystrip.empty { background: var(--danger-soft); outline: 1px solid #e0c6c1; }
+.daystrip .willdel {
+  align-self: center; color: var(--danger); font-weight: 700; font-size: .82rem;
+  padding: 0 8px 0 4px; white-space: nowrap;
+}
 .dayb {
   min-width: 36px; padding: 7px 4px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); color: var(--ink-3); font-size: .86rem; font-variant-numeric: tabular-nums;

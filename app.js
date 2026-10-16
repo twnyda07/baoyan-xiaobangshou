@@ -639,10 +639,21 @@ var pending = {};   // memberId -> 新的日期字串
 
 function pendingCount() { return Object.keys(pending).length; }
 
+/** 待存的變更裡，一天都沒勾的人（＝要從名單移除的） */
+function pendingEmpty() {
+  return Object.keys(pending)
+    .filter(function (id) { return !pending[id]; })
+    .map(function (id) { return state.members.filter(function (m) { return m.id === id; })[0]; })
+    .filter(Boolean);
+}
+
 function paintSaveBar() {
   var n = pendingCount();
   $('#rosterSave').hidden = n === 0;
-  $('#rosterSaveMsg').textContent = n ? '有 ' + n + ' 位的領用日期還沒存' : '';
+  var empties = pendingEmpty();
+  $('#rosterSaveMsg').textContent = n
+    ? '有 ' + n + ' 位的領用日期還沒存' + (empties.length ? '　·　其中 ' + empties.length + ' 位一天都沒勾，會從名單移除' : '')
+    : '';
 }
 
 function daysOf(m) {
@@ -652,7 +663,9 @@ function daysOf(m) {
 function rosterDayStrip(m) {
   var cur = daysOf(m);
   var changed = pending[m.id] != null;
-  return '<div class="daystrip' + (changed ? ' changed' : '') + '" data-mid="' + m.id + '">' +
+  return '<div class="daystrip' + (changed ? ' changed' : '') + (cur.length ? '' : ' empty') + '" data-mid="' + m.id + '"' +
+    (cur.length ? '' : ' title="一天都沒勾，儲存時會從名單移除"') + '>' +
+    (cur.length ? '' : '<span class="willdel">移除</span>') +
     allDays().map(function (d) {
       return '<button type="button" class="dayb' + (cur.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + esc(d) + '">' + esc(d) + '</button>';
     }).join('') +
@@ -685,16 +698,37 @@ function saveAllDays() {
   var items = Object.keys(pending).map(function (id) { return { memberId: id, '領用日期': pending[id] }; });
   if (!items.length) return;
   var n = items.length;
-  $('#btnSaveAll').disabled = true;
-  $('#rosterSaveMsg').textContent = '儲存中…（' + n + ' 筆）';
-  api('saveMembersBulk', { items: items })
-    .then(function () {
-      pending = {};
-      toast('已儲存 ' + n + ' 位的領用日期');
-      return load();
-    })
-    .catch(function (e) { toast(e.message, true); paintSaveBar(); })
-    .finally(function () { $('#btnSaveAll').disabled = false; });
+  var empties = pendingEmpty();
+
+  var ask = empties.length
+    ? confirmBox(
+      '有 ' + empties.length + ' 位要從名單移除',
+      '這幾位一天都沒勾，表示不需要小幫手，儲存時會從名單刪掉：\n\n' +
+      empties.map(function (m) { return '· ' + m.name + '（' + m.group.name + '／' + m.group.branch + '）'; }).join('\n') +
+      '\n\n其餘 ' + (n - empties.length) + ' 位只是改日期。要一起存嗎？',
+      '移除並儲存', 'danger')
+    : Promise.resolve(true);
+
+  return ask.then(function (yes) {
+    if (!yes) return;
+    $('#btnSaveAll').disabled = true;
+    $('#rosterSaveMsg').textContent = '儲存中…（' + n + ' 筆）';
+    return api('saveMembersBulk', { items: items })
+      .then(function (r) {
+        pending = {};
+        var del = (r['已移除'] || []).length;
+        var held = r['未歸還未移除'] || [];
+        toast('已儲存 ' + (n - del) + ' 位' + (del ? '，移除 ' + del + ' 位' : ''));
+        if (held.length) {
+          setTimeout(function () {
+            toast(held.join('、') + ' 手上的小幫手還沒歸還，先留在名單上', true);
+          }, 2600);
+        }
+        return load();
+      })
+      .catch(function (e) { toast(e.message, true); paintSaveBar(); })
+      .finally(function () { $('#btnSaveAll').disabled = false; });
+  });
 }
 
 function renderRoster() {
