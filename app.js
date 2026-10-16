@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261016e';
+var BUILD = '20261016f';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -66,14 +66,19 @@ function rawApi(action, payload, tries) {
   var body = Object.assign({ action: action, pw: pw, by: operator }, payload || {});
   tries = tries == null ? 4 : tries;
 
+  // 每次請求都有上限，網路卡住時不會無止境地等下去
+  var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : null;
+
   return fetch(url, {
     method: 'POST',
     // 用 text/plain 送，避免瀏覽器先發 OPTIONS（Apps Script 不處理 preflight）
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(body),
     redirect: 'follow',
+    signal: ctrl ? ctrl.signal : undefined,
   })
-    .then(function (r) { return r.text(); })
+    .then(function (r) { if (timer) clearTimeout(timer); return r.text(); })
     .then(function (txt) {
       var data;
       try { data = JSON.parse(txt); }
@@ -91,13 +96,15 @@ function rawApi(action, payload, tries) {
       return data;
     })
     .catch(function (e) {
+      if (timer) clearTimeout(timer);
+      if (e && e.name === 'AbortError') { e = new Error('連線逾時'); e.retryable = true; }
       var retryable = e.retryable || /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
       if (tries > 0 && retryable) {
         var waitMs = 700 * (5 - tries);
         return new Promise(function (res) { setTimeout(res, waitMs); })
           .then(function () { return rawApi(action, payload, tries - 1); });
       }
-      if (e.retryable) e.message = '網路不穩，試了幾次都連不上後端，請稍後再按一次';
+      if (retryable) e.message = '連不上系統（網路不穩或剛好在更新），等十秒再按一次';
       throw e;
     });
 }
@@ -203,21 +210,32 @@ function dupOthers(m) {
 function statusOf(m) { return m.inAt ? 'back' : (m.outAt ? 'out' : 'idle'); }
 function statusLabel(s) { return { idle: '尚未領取', out: '領取中', back: '已歸還' }[s]; }
 
+var loadingPromise = null;
 function load() {
-  if (loading) return Promise.resolve();
+  // 同時被呼叫時共用同一個請求。千萬不能直接回一個「成功」的空 Promise，
+  // 否則呼叫端會以為載好了，畫面就卡在半路。
+  if (loadingPromise) return loadingPromise;
   loading = true;
-  $('#btnReload').disabled = true;
-  return api('load')
+  var rb = $('#btnReload');
+  if (rb) rb.disabled = true;
+  loadingPromise = api('load')
     .then(function (d) {
       state.raw = d;
       state.settings = d.settings || {};
       role = d.role || 'admin';
       norm();
       renderAll();
-      $('#hdActivity').textContent = state.settings.activity || (window.CONFIG && window.CONFIG.subtitle) || '';
+      var ha = $('#hdActivity');
+      if (ha) ha.textContent = state.settings.activity || (window.CONFIG && window.CONFIG.subtitle) || '';
       return d;
     })
-    .finally(function () { loading = false; $('#btnReload').disabled = false; });
+    .finally(function () {
+      loading = false;
+      loadingPromise = null;
+      var b = $('#btnReload');
+      if (b) b.disabled = false;
+    });
+  return loadingPromise;
 }
 
 /* ===================== 對話框 ===================== */
