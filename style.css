@@ -105,6 +105,62 @@ h2.ttl:first-child { margin-top: 4px; }
 .tag.back { background: var(--ok-soft); border-color: #c9ddcd; color: var(--ok); }
 .tag.idle { background: var(--paper); color: var(--ink-3); }
 .tag.branch { background: var(--accent-soft); border-color: #cfdfe6; color: var(--accent); }
+.tag.dup { background: var(--danger-soft); border-color: #e0c6c1; color: var(--danger); font-weight: 600; }
+.tag.days { background: var(--paper); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tag.days.part { background: var(--warn-soft); border-color: #e5d5ae; color: var(--warn); font-weight: 600; }
+
+table.daytab { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.daytab th, table.daytab td { border-bottom: 1px solid var(--line-soft); padding: 9px 12px; text-align: right; }
+table.daytab th:first-child, table.daytab td:first-child { text-align: left; }
+table.daytab th { color: var(--ink-3); font-size: .84rem; font-weight: 600; }
+table.daytab td b { font-size: 1.05rem; color: var(--accent); }
+table.daytab tr:last-child td { border-bottom: none; }
+
+/* 領用日期勾選 */
+.daypick { display: flex; gap: 6px; flex-wrap: wrap; }
+.daypick .day { position: relative; }
+.daypick .day input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.daypick .day span {
+  display: block; min-width: 46px; text-align: center; padding: 10px 6px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--paper);
+  font-variant-numeric: tabular-nums; color: var(--ink-3); user-select: none;
+}
+.daypick .day.on span { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+/* 名單管理：整列可點的日期條 */
+.item.rost { align-items: center; gap: 10px; }
+.rost-l { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 150px; flex: 1; }
+.daystrip { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; padding: 3px; border-radius: 10px; }
+.daystrip.changed { background: var(--warn-soft); outline: 1px solid #e5d5ae; }
+.dayb {
+  min-width: 36px; padding: 7px 4px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); color: var(--ink-3); font-size: .86rem; font-variant-numeric: tabular-nums;
+}
+.dayb.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.dayb.all { min-width: 32px; color: var(--ink-3); background: none; }
+.dayb.all:hover { border-color: var(--ink-3); }
+
+/* 儲存列 */
+.savebar {
+  position: sticky; bottom: 12px; z-index: 20; margin-top: 14px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--ink); color: var(--paper-2); padding: 11px 16px; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(43,39,35,.22);
+}
+.savebar span { font-size: .92rem; margin-right: auto; }
+.savebar .btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.28); color: var(--paper-2); }
+.savebar .btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+/* 手機：一個人一行姓名＋一行日期，日期平分寬度好按 */
+@media (max-width: 620px) {
+  .item.rost { position: relative; padding: 10px 14px 12px; }
+  .rost-l { flex: 1 1 100%; padding-right: 44px; }
+  .item.rost > .btn { position: absolute; top: 8px; right: 12px; }
+  .daystrip { width: 100%; margin-left: 0; gap: 3px; }
+  .dayb { flex: 1 1 0; min-width: 0; padding: 10px 0; font-size: .82rem; }
+  .savebar { flex-wrap: nowrap; }
+  .savebar span { font-size: .85rem; }
+}
 
 /* ---------- 統計 ---------- */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
@@ -157,7 +213,8 @@ dialog {
 dialog::backdrop { background: rgba(43, 39, 35, .4); }
 dialog .dlg-h { padding: 16px 18px 0; font-weight: 700; font-size: 1.05rem; }
 dialog .dlg-b { padding: 14px 18px; }
-dialog .dlg-f { padding: 0 18px 18px; display: flex; gap: 8px; justify-content: flex-end; }
+dialog .dlg-f { padding: 0 18px 18px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
 
 /* ---------- 登入 ---------- */
 #gate { position: fixed; inset: 0; background: var(--paper); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
@@ -192,4 +249,9 @@ dialog .dlg-f { padding: 0 18px 18px; display: flex; gap: 8px; justify-content: 
   .sheet th { background: #eee; }
   .sheet td.nm { text-align: left; padding-left: 3mm; }
   .sheet td.sig { width: 32mm; }
+  .sheet.compact table { font-size: 8.6pt; }
+  .sheet.compact th, .sheet.compact td { padding: 1.4mm 1.2mm; }
+  .sheet td.l { text-align: left; padding-left: 2mm; }
+  .sheet tr.tot td { background: #f0f0f0; font-weight: 700; }
+  .sheet small { font-size: .85em; color: #555; }
 }

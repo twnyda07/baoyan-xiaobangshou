@@ -33,15 +33,16 @@
     <div class="top-right">
       <span class="tag" id="hdWho" hidden></span>
       <button class="btn sm ghost" id="btnReload" title="重新載入最新資料">↻ 更新</button>
+      <button class="btn sm" id="btnAdmin">後台管理</button>
     </div>
   </div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-page="counter" aria-selected="true">領取／歸還</button>
     <button role="tab" data-page="dash" aria-selected="false">總覽</button>
-    <button role="tab" data-page="roster" aria-selected="false">名單管理</button>
-    <button role="tab" data-page="devices" aria-selected="false">機台清冊</button>
-    <button role="tab" data-page="export" aria-selected="false">下載／列印</button>
-    <button role="tab" data-page="logs" aria-selected="false">操作紀錄</button>
+    <button role="tab" data-page="roster" data-admin aria-selected="false" hidden>名單管理</button>
+    <button role="tab" data-page="devices" data-admin aria-selected="false" hidden>機台清冊</button>
+    <button role="tab" data-page="export" data-admin aria-selected="false" hidden>列印／下載</button>
+    <button role="tab" data-page="logs" data-admin aria-selected="false" hidden>操作紀錄</button>
   </nav>
 </header>
 
@@ -76,8 +77,14 @@
     <div class="stats" id="dashTotal"></div>
     <h2 class="ttl">各分院</h2>
     <div id="dashBranches"></div>
+    <h2 class="ttl">每日需用台數</h2>
+    <p class="hint" style="margin:0 0 10px">依名單上勾選的領用日期統計，每天各分院要準備幾台。</p>
+    <div id="dashDays"></div>
     <h2 class="ttl">尚未歸還</h2>
     <div id="dashOut"></div>
+    <h2 class="ttl">重複出現的名字</h2>
+    <p class="hint" style="margin:0 0 10px">同一個名字出現在兩組以上。可能是同一個人要領兩台，也可能是不同人同名——發放前先確認。</p>
+    <div id="dashDup"></div>
   </section>
 
   <!-- ---------- 名單管理 ---------- -->
@@ -87,32 +94,44 @@
       <input class="box" id="rQ" type="search" placeholder="找組別或姓名" style="width:auto;flex:1;min-width:160px" autocomplete="off">
       <button class="btn sm" id="btnAddGroup">＋ 新增組別</button>
     </div>
+    <p class="hint" style="margin:0 0 12px">日期直接在下面點就好，可以一路勾完整份名單，最後按一次「儲存變更」。姓名、電話、編號、刪除人員請按該列的 ✎。</p>
     <div id="rosterList"></div>
+    <div id="rosterSave" class="savebar" hidden>
+      <span id="rosterSaveMsg"></span>
+      <button class="btn sm ghost" id="btnDiscard">放棄變更</button>
+      <button class="btn sm ok" id="btnSaveAll">儲存變更</button>
+    </div>
   </section>
 
   <!-- ---------- 機台清冊 ---------- -->
   <section class="page" id="page-devices">
-    <p class="hint" style="margin-bottom:12px">編號是依各分院借出總數自動產生的（善覺 48、善學 42、圓道 85），實際機身號碼如果不同，可以在這裡調整，或在領取時直接改填。</p>
+    <p class="hint" id="devHint" style="margin-bottom:12px">編號是依各分院借出總數自動產生的，實際機身號碼如果不同，可以在這裡調整，或在領取時直接改填。</p>
     <div id="deviceList"></div>
   </section>
 
-  <!-- ---------- 下載／列印 ---------- -->
+  <!-- ---------- 列印／下載 ---------- -->
   <section class="page" id="page-export">
+    <h2 class="ttl">列印名單</h2>
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <select class="box" id="pKind" style="width:auto;min-width:170px">
+          <option value="sign">簽名表（空格給人簽）</option>
+          <option value="roster">名單清冊（目前狀況）</option>
+          <option value="summary">分組總表（一張紙看全場）</option>
+        </select>
+        <select class="box" id="pBranch" style="width:auto;min-width:130px"><option value="">全部分院</option></select>
+        <button class="btn primary" id="btnPrint">預覽並列印</button>
+      </div>
+      <p class="hint" id="pHint" style="margin:0"></p>
+    </div>
+
     <h2 class="ttl">下載檔案</h2>
     <div class="card">
-      <p class="hint" style="margin:0 0 12px">Excel 內含：總表、善覺、善學、圓道、尚未歸還、機台清冊、操作紀錄，共 7 個工作表。</p>
+      <p class="hint" style="margin:0 0 12px">Excel 內含：總表、善覺、善學、圓道、尚未歸還、機台清冊、每日需用台數、同名重複、操作紀錄，共 9 個工作表。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" id="btnXls">下載 Excel（.xls）</button>
         <button class="btn" id="btnXlsx">下載 Excel（.xlsx）</button>
         <button class="btn" id="btnCsv">下載 CSV（總表）</button>
-      </div>
-    </div>
-    <h2 class="ttl">列印簽名表</h2>
-    <div class="card">
-      <p class="hint" style="margin:0 0 12px">印出來當紙本備援，格式比照原本的借用簽名表（項次／姓名／編號／領／還），依分院分頁。</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <select class="box" id="pBranch" style="width:auto;min-width:130px"><option value="">全部分院</option></select>
-        <button class="btn primary" id="btnPrint">預覽並列印</button>
       </div>
     </div>
     <h2 class="ttl">系統</h2>

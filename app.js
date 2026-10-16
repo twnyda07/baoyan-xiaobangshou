@@ -18,6 +18,7 @@ var state = { settings: {}, groups: [], members: [], devices: [], logs: [] };
 var pw = '';
 var operator = '';
 var loading = false;
+var adminOn = false;
 
 function backendUrl() {
   return (localStorage.getItem('xbs_backend') || (window.CONFIG && window.CONFIG.backend) || '').trim();
@@ -90,6 +91,7 @@ function norm() {
       id: m.id, groupId: m['組別id'], name: m['姓名'], phone: m['行動電話'],
       no: m['小幫手編號'], outAt: m['領取時間'], outBy: m['領取經手'],
       inAt: m['歸還時間'], inBy: m['歸還經手'], missing: m['配件缺漏'], note: m['備註'],
+      days: String(m['領用日期'] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean),
     };
   });
 
@@ -105,6 +107,70 @@ function norm() {
   state.groups.forEach(function (g) { state.gById[g.id] = g; });
   state.members.forEach(function (m) { m.group = state.gById[m.groupId] || null; });
   state.members = state.members.filter(function (m) { return m.group; });
+
+  // 同一個名字出現在兩組以上 → 標註出來，現場才知道是不是同一個人要領兩台
+  var by = {};
+  state.members.forEach(function (m) {
+    var k = m.name.replace(/\s/g, '');
+    (by[k] = by[k] || []).push(m);
+  });
+  state.dups = {};
+  Object.keys(by).forEach(function (k) {
+    if (by[k].length < 2) return;
+    state.dups[k] = by[k];
+    by[k].forEach(function (m) { m.dup = by[k]; });
+  });
+}
+
+/* ---------- 領用日期 ---------- */
+function allDays() { return (state.settings.days && state.settings.days.length) ? state.settings.days : ['21', '22', '23', '24', '25', '26', '27']; }
+
+/** 日期縮寫：全部→「全程」；連續→「21–24」；其他→「21、23、27」 */
+function daysLabel(days) {
+  var all = allDays();
+  if (!days || !days.length) return '未填';
+  if (days.length === all.length) return '全程';
+  var nums = days.map(Number).sort(function (a, b) { return a - b; });
+  var cont = nums.every(function (n, i) { return i === 0 || n === nums[i - 1] + 1; });
+  return cont && nums.length > 2 ? nums[0] + '–' + nums[nums.length - 1] : nums.join('、');
+}
+
+function daysPicker(selected) {
+  var all = allDays();
+  return '<div class="daypick">' + all.map(function (d) {
+    var on = selected.indexOf(d) >= 0;
+    return '<label class="day' + (on ? ' on' : '') + '"><input type="checkbox" value="' + esc(d) + '"' + (on ? ' checked' : '') + '><span>' + esc(d) + '</span></label>';
+  }).join('') +
+    '</div><div style="display:flex;gap:6px;margin-top:8px">' +
+    '<button type="button" class="btn sm ghost" data-days="all">全選</button>' +
+    '<button type="button" class="btn sm ghost" data-days="none">全不選</button></div>';
+}
+
+function wireDays(body) {
+  body.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-days]');
+    if (b) {
+      e.preventDefault();
+      $$('.daypick input', body).forEach(function (c) {
+        c.checked = b.dataset.days === 'all';
+        c.closest('.day').classList.toggle('on', c.checked);
+      });
+      return;
+    }
+    var lab = e.target.closest('.day');
+    if (lab) setTimeout(function () { lab.classList.toggle('on', $('input', lab).checked); }, 0);
+  });
+}
+
+function readDays(body) {
+  return $$('.daypick input:checked', body).map(function (c) { return c.value; });
+}
+
+/** 這個人重複出現在哪些組（不含自己） */
+function dupOthers(m) {
+  if (!m.dup) return [];
+  return m.dup.filter(function (x) { return x.id !== m.id; })
+    .map(function (x) { return x.group.name + '（' + x.group.branch + '）'; });
 }
 
 function statusOf(m) { return m.inAt ? 'back' : (m.outAt ? 'out' : 'idle'); }
@@ -162,6 +228,7 @@ function dialog(opts) {
       if (primary) primary.click(); else finish(null);
     };
     dlg.showModal();
+    if (opts.wire) opts.wire($('#dlgBody'), finish);
     if (opts.focus) { var f = $(opts.focus, $('#dlgBody')); if (f) setTimeout(function () { f.focus(); f.select && f.select(); }, 60); }
   });
 }
@@ -318,17 +385,28 @@ function editMember(m) {
       '<label class="field"><span>姓名</span><input class="box" id="eName" autocomplete="off" value="' + esc(m.name) + '"></label>' +
       '<label class="field"><span>行動電話（不填也可以）</span><input class="box" id="ePhone" inputmode="tel" autocomplete="off" value="' + esc(m.phone) + '"></label>' +
       '<label class="field"><span>小幫手編號</span><input class="box" id="eNo" autocomplete="off" value="' + esc(m.no) + '"></label>' +
-      '<label class="field"><span>備註</span><input class="box" id="eNote" autocomplete="off" value="' + esc(m.note) + '"></label>',
+      '<div class="field"><span>領用日期（哪幾天要用）</span>' + daysPicker(m.days) + '</div>' +
+      '<label class="field"><span>備註</span><input class="box" id="eNote" autocomplete="off" value="' + esc(m.note) + '"></label>' +
+      '<div style="border-top:1px solid var(--line-soft);margin-top:16px;padding-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<button type="button" class="btn sm danger" id="eDel">刪除這個人</button>' +
+      '<span class="hint" style="margin:0">從 ' + esc(m.group.name) + ' 的名單移除</span></div>',
     focus: '#eName',
+    wire: function (body, finish) {
+      $('#eDel', body).addEventListener('click', function () { finish('__del'); });
+      wireDays(body);
+    },
     buttons: [
       { label: '取消', value: null },
-      { label: '刪除這個人', cls: 'danger', value: '__del' },
       {
         label: '儲存', cls: 'primary',
         collect: function (b) {
           var name = $('#eName', b).value.trim();
           if (!name) { toast('姓名不能空白', true); return false; }
-          return { '姓名': name, '行動電話': $('#ePhone', b).value.trim(), '小幫手編號': $('#eNo', b).value.trim(), '備註': $('#eNote', b).value.trim() };
+          return {
+            '姓名': name, '行動電話': $('#ePhone', b).value.trim(),
+            '小幫手編號': $('#eNo', b).value.trim(), '備註': $('#eNote', b).value.trim(),
+            '領用日期': readDays(b).join(','),
+          };
         },
       },
     ],
@@ -358,8 +436,10 @@ function addMember(g) {
     body:
       '<p class="hint" style="margin:0 0 10px">這組預定 ' + g.qty + ' 組，名單目前 ' + membersOf(g.id).length + ' 人。</p>' +
       '<label class="field"><span>姓名</span><input class="box" id="aName" autocomplete="off"></label>' +
-      '<label class="field"><span>行動電話（不填也可以）</span><input class="box" id="aPhone" inputmode="tel" autocomplete="off"></label>',
+      '<label class="field"><span>行動電話（不填也可以）</span><input class="box" id="aPhone" inputmode="tel" autocomplete="off"></label>' +
+      '<div class="field"><span>領用日期（哪幾天要用）</span>' + daysPicker(allDays()) + '</div>',
     focus: '#aName',
+    wire: function (body) { wireDays(body); },
     buttons: [
       { label: '取消', value: null },
       {
@@ -367,13 +447,14 @@ function addMember(g) {
         collect: function (b) {
           var n = $('#aName', b).value.trim();
           if (!n) { toast('請填姓名', true); return false; }
-          return { name: n, phone: $('#aPhone', b).value.trim() };
+          return { name: n, phone: $('#aPhone', b).value.trim(), days: readDays(b).join(',') };
         },
       },
     ],
   }).then(function (r) {
     if (!r) return;
-    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone }).then(function () { toast('已新增 ' + r.name); return load(); });
+    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days })
+      .then(function () { toast('已新增 ' + r.name); return load(); });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -395,11 +476,19 @@ function editGroup(g) {
       '<label class="field"><span>分區名稱</span><input class="box" id="gZoneName" autocomplete="off" value="' + esc(g.zoneName) + '"></label>' +
       '</div>' +
       '<label class="field"><span>借用項目</span><input class="box" id="gItems" autocomplete="off" value="' + esc(g.items) + '"></label>' +
-      '<label class="field"><span>備註</span><input class="box" id="gNote" autocomplete="off" value="' + esc(g.note) + '"></label>',
+      '<label class="field"><span>備註</span><input class="box" id="gNote" autocomplete="off" value="' + esc(g.note) + '"></label>' +
+      (isNew ? '' :
+        '<div style="border-top:1px solid var(--line-soft);margin-top:16px;padding-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<button type="button" class="btn sm danger" id="gDel">刪除這組</button>' +
+        '<span class="hint" style="margin:0">底下的人員會一起刪掉</span></div>'),
     focus: '#gName',
+    wire: function (body, finish) {
+      var d = $('#gDel', body);
+      if (d) d.addEventListener('click', function () { finish('__del'); });
+    },
     buttons: [
       { label: '取消', value: null },
-    ].concat(isNew ? [] : [{ label: '刪除這組', cls: 'danger', value: '__del' }]).concat([
+    ].concat([
       {
         label: isNew ? '新增' : '儲存', cls: 'primary',
         collect: function (b) {
@@ -436,7 +525,7 @@ function memberRow(m, opts) {
   else if (s === 'out') acts = '<button class="btn sm primary" data-act="in" data-id="' + m.id + '">歸還</button>' +
     '<button class="btn sm ghost" data-act="undo-out" data-id="' + m.id + '" title="取消領取">↩</button>';
   else acts = '<button class="btn sm ghost" data-act="undo-in" data-id="' + m.id + '" title="取消歸還">↩</button>';
-  acts += '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="修改">✎</button>';
+  if (adminOn) acts += '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="修改">✎</button>';
 
   var meta = [];
   if (opts.showGroup) meta.push(m.group.name);
@@ -446,12 +535,32 @@ function memberRow(m, opts) {
   if (s === 'back') meta.push('還於 ' + (m.inAt || '').slice(5, 16));
   if (m.missing) meta.push('⚠ ' + m.missing);
 
+  var others = dupOthers(m);
   return '<div class="item is-' + s + '">' +
     '<span class="nm">' + esc(m.name) + '</span>' +
     (m.no ? '<span class="no">' + esc(m.no) + '</span>' : '') +
+    (others.length ? '<span class="tag dup" title="同名也在：' + esc(others.join('、')) + '">同名 ' + (others.length + 1) + ' 組</span>' : '') +
     '<span class="tag ' + s + '">' + statusLabel(s) + '</span>' +
+    '<span class="tag days' + (m.days.length === allDays().length ? '' : ' part') + '" title="領用日期：' + esc(m.days.join('、') || '未填') + '">' + esc(daysLabel(m.days)) + '</span>' +
     '<span class="meta">' + esc(meta.join('　·　')) + '</span>' +
     '<span class="acts">' + acts + '</span>' +
+    '</div>';
+}
+
+/** 名單管理用的列：姓名 + 直接可點的領用日期 */
+function rosterRow(m) {
+  var s = statusOf(m);
+  var others = dupOthers(m);
+  return '<div class="item rost is-' + s + '">' +
+    '<div class="rost-l">' +
+    '<span class="nm">' + esc(m.name) + '</span>' +
+    (m.no ? '<span class="no">' + esc(m.no) + '</span>' : '') +
+    (others.length ? '<span class="tag dup" title="同名也在：' + esc(others.join('、')) + '">同名 ' + (others.length + 1) + ' 組</span>' : '') +
+    (s === 'idle' ? '' : '<span class="tag ' + s + '">' + statusLabel(s) + '</span>') +
+    (m.phone ? '<span class="meta">' + esc(m.phone) + '</span>' : '') +
+    '</div>' +
+    rosterDayStrip(m) +
+    '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>' +
     '</div>';
 }
 
@@ -501,6 +610,91 @@ function renderDash() {
   $('#dashOut').innerHTML = out.length
     ? '<div class="list">' + out.map(function (m) { return memberRow(m, { showGroup: true }); }).join('') + '</div>'
     : '<div class="empty">目前沒有未歸還的小幫手 🎉</div>';
+
+  $('#dashDays').innerHTML = '<div class="card" style="overflow-x:auto"><table class="daytab"><thead><tr><th>日期</th>' +
+    BRANCHES.map(function (b) { return '<th>' + b + '</th>'; }).join('') + '<th>合計</th></tr></thead><tbody>' +
+    perDayCounts('').map(function (r) {
+      return '<tr><td>' + esc(r.day) + ' 日</td>' +
+        BRANCHES.map(function (b) { return '<td>' + r[b] + '</td>'; }).join('') +
+        '<td><b>' + r.total + '</b></td></tr>';
+    }).join('') + '</tbody></table></div>';
+
+  var keys = Object.keys(state.dups);
+  $('#dashDup').innerHTML = keys.length
+    ? '<div class="list">' + keys.sort().map(function (k) {
+      var arr = state.dups[k];
+      var taken = arr.filter(function (m) { return m.outAt && !m.inAt; }).length;
+      return '<div class="item">' +
+        '<span class="nm">' + esc(arr[0].name) + '</span>' +
+        '<span class="tag dup">' + arr.length + ' 組</span>' +
+        (taken > 1 ? '<span class="tag out">已領 ' + taken + ' 台</span>' : '') +
+        '<span class="meta">' + esc(arr.map(function (m) { return m.group.name + '（' + m.group.branch + '）'; }).join('　·　')) + '</span>' +
+        '</div>';
+    }).join('') + '</div>'
+    : '<div class="empty">沒有重複的名字</div>';
+}
+
+/* ---------- 名單管理：逐個勾選、最後一次儲存 ---------- */
+var pending = {};   // memberId -> 新的日期字串
+
+function pendingCount() { return Object.keys(pending).length; }
+
+function paintSaveBar() {
+  var n = pendingCount();
+  $('#rosterSave').hidden = n === 0;
+  $('#rosterSaveMsg').textContent = n ? '有 ' + n + ' 位的領用日期還沒存' : '';
+}
+
+function daysOf(m) {
+  return pending[m.id] != null ? pending[m.id].split(',').filter(Boolean) : m.days;
+}
+
+function rosterDayStrip(m) {
+  var cur = daysOf(m);
+  var changed = pending[m.id] != null;
+  return '<div class="daystrip' + (changed ? ' changed' : '') + '" data-mid="' + m.id + '">' +
+    allDays().map(function (d) {
+      return '<button type="button" class="dayb' + (cur.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + esc(d) + '">' + esc(d) + '</button>';
+    }).join('') +
+    '<button type="button" class="dayb all" data-day="__all">全</button>' +
+    '</div>';
+}
+
+function toggleDay(mid, day) {
+  var m = state.members.filter(function (x) { return x.id === mid; })[0];
+  if (!m) return;
+  var cur = daysOf(m).slice();
+  if (day === '__all') {
+    cur = cur.length === allDays().length ? [] : allDays().slice();
+  } else {
+    var i = cur.indexOf(day);
+    if (i >= 0) cur.splice(i, 1); else cur.push(day);
+  }
+  cur.sort(function (a, b) { return Number(a) - Number(b); });
+  var next = cur.join(',');
+  if (next === m.days.join(',')) delete pending[m.id];
+  else pending[m.id] = next;
+
+  // 只重畫那一列，不整頁重繪，才不會把勾到一半的狀態洗掉
+  var strip = $('.daystrip[data-mid="' + mid + '"]');
+  if (strip) strip.outerHTML = rosterDayStrip(m);
+  paintSaveBar();
+}
+
+function saveAllDays() {
+  var items = Object.keys(pending).map(function (id) { return { memberId: id, '領用日期': pending[id] }; });
+  if (!items.length) return;
+  var n = items.length;
+  $('#btnSaveAll').disabled = true;
+  $('#rosterSaveMsg').textContent = '儲存中…（' + n + ' 筆）';
+  api('saveMembersBulk', { items: items })
+    .then(function () {
+      pending = {};
+      toast('已儲存 ' + n + ' 位的領用日期');
+      return load();
+    })
+    .catch(function (e) { toast(e.message, true); paintSaveBar(); })
+    .finally(function () { $('#btnSaveAll').disabled = false; });
 }
 
 function renderRoster() {
@@ -528,7 +722,7 @@ function renderRoster() {
       (out ? '<span class="tag out">' + out + ' 台未還</span>' : '') +
       '</span></summary>' +
       '<div class="grp-body">' +
-      (ms.length ? ms.map(function (m) { return memberRow(m); }).join('') : '<div class="empty">名單還沒填</div>') +
+      (ms.length ? ms.map(function (m) { return rosterRow(m); }).join('') : '<div class="empty">名單還沒填</div>') +
       '<div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line-soft)">' +
       '<button class="btn sm" data-act="add-member" data-gid="' + g.id + '">＋ 新增人員</button>' +
       '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>' +
@@ -583,7 +777,13 @@ function fillSelects() {
 }
 
 function renderAll() {
-  renderCounter(); renderDash(); renderRoster(); renderDevices(); renderLogs();
+  renderCounter(); renderDash(); renderRoster(); renderDevices(); renderLogs(); paintSaveBar();
+  var dh = $('#devHint');
+  if (dh) {
+    dh.textContent = '編號是依各分院借出總數自動產生的（' +
+      BRANCHES.map(function (b) { return b + ' ' + state.devices.filter(function (d) { return d.branch === b; }).length; }).join('、') +
+      '），實際機身號碼如果不同，可以在這裡調整，或在領取時直接改填。';
+  }
   $('#sysInfo').textContent = '資料更新於 ' + (state.settings.updatedAt || '—') +
     '　·　組別 ' + state.groups.length + '　·　名單 ' + state.members.length + ' 人　·　機台 ' + state.devices.length + ' 台';
 }
@@ -599,6 +799,8 @@ function exportRows(filter) {
       '領取時間': m.outAt, '領取經手': m.outBy,
       '歸還時間': m.inAt, '歸還經手': m.inBy,
       '配件缺漏': m.missing, '借用項目': m.group.items, '備註': m.note,
+      '領用日期': m.days.join('、'), '領用天數': m.days.length,
+      '同名重複': dupOthers(m).join('；'),
     };
   });
 }
@@ -617,6 +819,21 @@ function buildWorkbook() {
     var who = state.members.filter(function (m) { return m.outAt && !m.inAt && m.no === d.no && m.group.branch === d.branch; })[0];
     return { '分院': d.branch, '編號': d.no, '狀態': who ? '借出' : d.status, '目前借用者': who ? who.name : '', '備註': d.note };
   }));
+  add('每日需用台數', perDayCounts('').map(function (r) {
+    var o = { '日期': r.day + ' 日' };
+    BRANCHES.forEach(function (b) { o[b] = r[b]; });
+    o['合計'] = r.total;
+    return o;
+  }));
+  add('同名重複', Object.keys(state.dups).sort().reduce(function (acc, k) {
+    state.dups[k].forEach(function (m) {
+      acc.push({
+        '姓名': m.name, '組別': m.group.name, '借用分院': m.group.branch, '組長': m.group.leader,
+        '小幫手編號': m.no, '狀態': statusLabel(statusOf(m)), '共出現幾組': state.dups[k].length,
+      });
+    });
+    return acc;
+  }, []));
   add('操作紀錄', state.logs.map(function (l) {
     return { '時間': l.at, '動作': l.act, '分院': l.branch, '組別': l.group, '姓名': l.name, '編號': l.no, '內容': l.detail, '經手': l.by };
   }));
@@ -658,16 +875,26 @@ function exportCsv() {
   download(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }), '小幫手借用表_' + stamp() + '.csv');
 }
 
-/* ===================== 列印簽名表 ===================== */
-function buildPrint(branch) {
-  var groups = state.groups.filter(function (g) { return !branch || g.branch === branch; })
+/* ===================== 列印 ===================== */
+function sortedGroups(branch) {
+  return state.groups.filter(function (g) { return !branch || g.branch === branch; })
     .sort(function (a, b) {
       if (a.branch !== b.branch) return BRANCHES.indexOf(a.branch) - BRANCHES.indexOf(b.branch);
       if (a.zone !== b.zone) return (a.zone || '') < (b.zone || '') ? -1 : 1;
       return (parseInt(a.seq, 10) || 0) - (parseInt(b.seq, 10) || 0);
     });
+}
 
-  var html = groups.map(function (g) {
+function printHead(title, right) {
+  return '<h3>' + esc(state.settings.temple || '寶嚴山寶嚴禪寺') + '　' + esc(title) + '</h3>' +
+    '<div class="sh-meta"><span>活動：' + esc(state.settings.activity || '') + '</span>' +
+    '<span>' + esc(right || '') + '</span>' +
+    '<span>列印時間：' + new Date().toLocaleString('zh-TW', { hour12: false }).replace(/\//g, '-') + '</span></div>';
+}
+
+/** 一、簽名表：一組一頁，簽名欄留白 */
+function buildSign(branch) {
+  return sortedGroups(branch).map(function (g) {
     var ms = membersOf(g.id);
     var slots = Math.max(g.qty, ms.length, 1);
     var rows = '';
@@ -677,18 +904,119 @@ function buildPrint(branch) {
         '<td>' + esc(m && m.no ? m.no : '') + '</td><td class="sig"></td><td class="sig"></td></tr>';
     }
     return '<div class="sheet">' +
-      '<h3>' + esc(state.settings.temple || '寶嚴山寶嚴禪寺') + '　小幫手借用簽名表</h3>' +
-      '<div class="sh-meta"><span>活動：' + esc(state.settings.activity || '') + '</span>' +
-      '<span>借用分院：' + esc(g.branch) + '</span><span>聯絡人：' + esc(state.settings.contacts || '') + '</span></div>' +
+      printHead('小幫手借用簽名表', '借用分院：' + g.branch) +
       '<div class="sh-meta"><span>組別：<b>' + esc(g.name) + '</b>　組長：' + esc(g.leader || '') + '</span>' +
       '<span>數量：' + g.qty + ' 組</span><span>借用項目：' + esc(g.items || '') + '</span></div>' +
       '<table><thead><tr><th style="width:12mm">項次</th><th>姓名</th><th style="width:26mm">小幫手編號</th>' +
       '<th class="sig">領取簽名</th><th class="sig">歸還簽名</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '</div>';
   }).join('');
+}
 
+/** 二、名單清冊：一個分院一頁，印出目前領取狀況 */
+function buildRoster(branch) {
+  var brs = branch ? [branch] : BRANCHES;
+  return brs.map(function (b) {
+    var gs = sortedGroups(b);
+    if (!gs.length) return '';
+    var rows = '', n = 0;
+    gs.forEach(function (g) {
+      var ms = membersOf(g.id);
+      if (!ms.length) {
+        rows += '<tr><td class="l">' + esc(g.name) + '</td><td class="l" colspan="6">（名單還沒填）</td></tr>';
+        return;
+      }
+      ms.forEach(function (m, i) {
+        var s = statusOf(m);
+        n++;
+        var od = dupOthers(m);
+        rows += '<tr>' +
+          '<td class="l">' + (i === 0 ? esc(g.name) : '') + '</td>' +
+          '<td class="l">' + esc(m.name) + (od.length ? '<small>※同名' + (od.length + 1) + '組</small>' : '') + '</td>' +
+          '<td>' + esc(m.no || '') + '</td>' +
+          '<td class="l">' + esc(m.phone || '') + '</td>' +
+          '<td>' + esc(daysLabel(m.days)) + '</td>' +
+          '<td>' + statusLabel(s) + '</td>' +
+          '<td>' + esc((m.outAt || '').slice(5, 16)) + '</td>' +
+          '<td>' + esc((m.inAt || '').slice(5, 16)) + (m.missing ? '<br>⚠' + esc(m.missing) : '') + '</td>' +
+          '</tr>';
+      });
+    });
+    var all = state.members.filter(function (m) { return m.group.branch === b; });
+    var out = all.filter(function (m) { return statusOf(m) === 'out'; }).length;
+    var back = all.filter(function (m) { return statusOf(m) === 'back'; }).length;
+    return '<div class="sheet compact">' +
+      printHead('小幫手借用名單清冊', '借用分院：' + b) +
+      '<div class="sh-meta"><span>名單 ' + n + ' 人</span><span>領取中（未歸還）' + out + '</span><span>已歸還 ' + back + '</span></div>' +
+      '<table><thead><tr><th style="width:28mm">組別</th><th style="width:24mm">姓名</th><th style="width:16mm">編號</th>' +
+      '<th style="width:24mm">行動電話</th><th style="width:18mm">領用日期</th><th style="width:16mm">狀態</th>' +
+      '<th style="width:22mm">領取</th><th style="width:22mm">歸還</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }).join('');
+}
+
+/** 每一天各分院要準備幾台 */
+function perDayCounts(branch) {
+  var ms = state.members.filter(function (m) { return !branch || m.group.branch === branch; });
+  return allDays().map(function (d) {
+    var row = { day: d, total: 0 };
+    BRANCHES.forEach(function (b) { row[b] = 0; });
+    ms.forEach(function (m) {
+      if (m.days.indexOf(d) < 0) return;
+      row.total++;
+      row[m.group.branch]++;
+    });
+    return row;
+  });
+}
+
+/** 三、分組總表：一張紙看全場 */
+function buildSummary(branch) {
+  var gs = sortedGroups(branch);
+  var tQty = 0, tM = 0, tOut = 0, tBack = 0;
+  var rows = gs.map(function (g) {
+    var ms = membersOf(g.id);
+    var out = ms.filter(function (m) { return statusOf(m) === 'out'; }).length;
+    var back = ms.filter(function (m) { return statusOf(m) === 'back'; }).length;
+    tQty += g.qty; tM += ms.length; tOut += out; tBack += back;
+    var short = g.qty - ms.length;
+    return '<tr><td>' + esc(g.zone || '') + '</td><td class="l">' + esc(g.name) + '</td>' +
+      '<td class="l">' + esc(g.leader || '') + '</td><td>' + esc(g.branch) + '</td>' +
+      '<td>' + g.qty + '</td><td>' + ms.length + (short > 0 ? '<small>（缺' + short + '）</small>' : '') + '</td>' +
+      '<td>' + (out || '') + '</td><td>' + (back || '') + '</td></tr>';
+  }).join('');
+  return '<div class="sheet compact">' +
+    printHead('小幫手借用分組總表', branch ? '借用分院：' + branch : '全部分院') +
+    '<table><thead><tr><th style="width:12mm">分區</th><th>組別</th><th style="width:28mm">組長</th>' +
+    '<th style="width:16mm">分院</th><th style="width:16mm">數量</th><th style="width:24mm">名單</th>' +
+    '<th style="width:18mm">未歸還</th><th style="width:18mm">已歸還</th></tr></thead><tbody>' + rows +
+    '<tr class="tot"><td colspan="4">合計 ' + gs.length + ' 組</td><td>' + tQty + '</td><td>' + tM + '</td>' +
+    '<td>' + tOut + '</td><td>' + tBack + '</td></tr>' +
+    '</tbody></table>' +
+    '<h4 style="margin:6mm 0 2mm;font-size:11pt">每日需用台數（依名單上勾選的領用日期）</h4>' +
+    '<table><thead><tr><th style="width:20mm">日期</th>' +
+    (branch ? '' : BRANCHES.map(function (b) { return '<th>' + b + '</th>'; }).join('')) +
+    '<th>合計</th></tr></thead><tbody>' +
+    perDayCounts(branch).map(function (r) {
+      return '<tr><td>' + esc(r.day) + ' 日</td>' +
+        (branch ? '' : BRANCHES.map(function (b) { return '<td>' + r[b] + '</td>'; }).join('')) +
+        '<td><b>' + r.total + '</b></td></tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+
+function buildPrint(kind, branch) {
+  var html = kind === 'roster' ? buildRoster(branch)
+    : kind === 'summary' ? buildSummary(branch)
+      : buildSign(branch);
   $('#printArea').innerHTML = html || '<div class="sheet"><h3>沒有資料</h3></div>';
 }
+
+var PRINT_HINT = {
+  sign: '比照原本紙本的借用簽名表（項次／姓名／編號／領取簽名／歸還簽名），一組一頁，簽名欄留白。法會前先印一份當斷網備援。',
+  roster: '印出每一位目前的編號、電話、是否已領、是否已還、領取與歸還時間，一個分院一頁，給負責人核對用。',
+  summary: '一頁列完所有組別：分區、組別、組長、借用分院、數量、名單人數（含還缺幾位）、未歸還、已歸還，給總幹事掌握全場。',
+};
 
 /* ===================== 機台清冊 ===================== */
 function deviceDialog(branch, no) {
@@ -758,6 +1086,11 @@ function resetDevices(branch) {
 function byId(id) { return state.members.filter(function (m) { return m.id === id; })[0]; }
 
 document.addEventListener('click', function (e) {
+  var day = e.target.closest('.daystrip .dayb');
+  if (day) {
+    toggleDay(day.closest('.daystrip').dataset.mid, day.dataset.day);
+    return;
+  }
   var b = e.target.closest('[data-act]');
   if (!b) return;
   var act = b.dataset.act;
@@ -778,12 +1111,38 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'dMiss') $('#dMissWrap').hidden = e.target.value !== '__other';
 });
 
+function showPage(name) {
+  $$('nav.tabs button').forEach(function (x) { x.setAttribute('aria-selected', x.dataset.page === name); });
+  $$('section.page').forEach(function (p) { p.classList.toggle('on', p.id === 'page-' + name); });
+  window.scrollTo(0, 0);
+}
+
 $$('nav.tabs button').forEach(function (b) {
-  b.addEventListener('click', function () {
-    $$('nav.tabs button').forEach(function (x) { x.setAttribute('aria-selected', x === b); });
-    $$('section.page').forEach(function (p) { p.classList.toggle('on', p.id === 'page-' + b.dataset.page); });
-    window.scrollTo(0, 0);
-  });
+  b.addEventListener('click', function () { showPage(b.dataset.page); });
+});
+
+/* ---------- 後台 ---------- */
+function setAdmin(on) {
+  adminOn = !!on;
+  $$('nav.tabs button[data-admin]').forEach(function (b) { b.hidden = !adminOn; });
+  var btn = $('#btnAdmin');
+  btn.textContent = adminOn ? '離開後台' : '後台管理';
+  btn.className = 'btn sm' + (adminOn ? ' ghost' : '');
+  if (adminOn) sessionStorage.setItem('xbs_admin', '1');
+  else sessionStorage.removeItem('xbs_admin');
+  // 離開後台時，若正停在後台頁面就退回領取／歸還
+  var cur = $('section.page.on');
+  if (!adminOn && cur && $('nav.tabs button[data-page="' + cur.id.replace('page-', '') + '"][data-admin]')) {
+    showPage('counter');
+  }
+  renderCounter(); renderDash();
+}
+
+$('#btnAdmin').addEventListener('click', function () {
+  if (adminOn) { setAdmin(false); toast('已離開後台'); return; }
+  setAdmin(true);
+  showPage('roster');
+  toast('後台管理：可以改分組、改名單、列印');
 });
 
 $('#q').addEventListener('input', renderCounter);
@@ -791,12 +1150,25 @@ $('#fBranch').addEventListener('change', renderCounter);
 $('#fStatus').addEventListener('change', renderCounter);
 $('#rBranch').addEventListener('change', renderRoster);
 $('#rQ').addEventListener('input', renderRoster);
+$('#btnSaveAll').addEventListener('click', saveAllDays);
+$('#btnDiscard').addEventListener('click', function () {
+  confirmBox('放棄變更', '剛剛勾的 ' + pendingCount() + ' 位領用日期都不存，確定嗎？', '放棄', 'danger')
+    .then(function (yes) { if (!yes) return; pending = {}; renderRoster(); paintSaveBar(); toast('已放棄變更'); });
+});
+window.addEventListener('beforeunload', function (e) {
+  if (pendingCount()) { e.preventDefault(); e.returnValue = ''; }
+});
 $('#btnReload').addEventListener('click', function () { load().then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
 $('#btnAddGroup').addEventListener('click', function () { editGroup(null); });
 $('#btnXls').addEventListener('click', function () { exportExcel('xls'); });
 $('#btnXlsx').addEventListener('click', function () { exportExcel('xlsx'); });
 $('#btnCsv').addEventListener('click', exportCsv);
-$('#btnPrint').addEventListener('click', function () { buildPrint($('#pBranch').value); setTimeout(function () { window.print(); }, 80); });
+function paintPrintHint() { $('#pHint').textContent = PRINT_HINT[$('#pKind').value] || ''; }
+$('#pKind').addEventListener('change', paintPrintHint);
+$('#btnPrint').addEventListener('click', function () {
+  buildPrint($('#pKind').value, $('#pBranch').value);
+  setTimeout(function () { window.print(); }, 80);
+});
 $('#hdWho').addEventListener('click', function () { askOperator(true); });
 
 $('#btnLogout').addEventListener('click', function () {
@@ -873,6 +1245,8 @@ function enter() {
   sessionStorage.setItem('xbs_pw', pw);
   $('#gate').remove();
   fillSelects();
+  paintPrintHint();
+  setAdmin(sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
   if (!operator) setTimeout(function () { askOperator(); }, 400);
