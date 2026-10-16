@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261016d';
+var BUILD = '20261016e';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -32,6 +32,8 @@ var pw = '';
 var operator = '';
 var loading = false;
 var adminOn = false;
+var role = 'admin';              // admin＝工作人員（可領取歸還、可進後台）／guest＝訪客，只能看
+function isGuest() { return role === 'guest'; }
 
 function backendUrl() {
   return (localStorage.getItem('xbs_backend') || (window.CONFIG && window.CONFIG.backend) || '').trim();
@@ -209,6 +211,7 @@ function load() {
     .then(function (d) {
       state.raw = d;
       state.settings = d.settings || {};
+      role = d.role || 'admin';
       norm();
       renderAll();
       $('#hdActivity').textContent = state.settings.activity || (window.CONFIG && window.CONFIG.subtitle) || '';
@@ -560,6 +563,7 @@ function memberRow(m, opts) {
   if (s === 'back') meta.push('還於 ' + (m.inAt || '').slice(5, 16));
   if (m.missing) meta.push('⚠ ' + m.missing);
 
+  if (isGuest()) acts = '';     // 訪客只看，不給任何操作鈕
   var others = dupOthers(m);
   return '<div class="item is-' + s + '">' +
     '<span class="nm">' + esc(m.name) + '</span>' +
@@ -1230,11 +1234,20 @@ on('#btnPrint', 'click', function () {
 });
 on('#hdWho', 'click', function () { askOperator(true); });
 
-on('#btnLogout', 'click', function () {
-  sessionStorage.removeItem('xbs_pw');
-  sessionStorage.removeItem('xbs_opr');
-  location.reload();
-});
+function doLogout() {
+  var ask = pendingCount()
+    ? confirmBox('還有沒存的變更', '有 ' + pendingCount() + ' 位的領用日期還沒儲存，登出就會不見。\n\n確定要登出嗎？', '還是要登出', 'danger')
+    : Promise.resolve(true);
+  ask.then(function (yes) {
+    if (!yes) return;
+    sessionStorage.removeItem('xbs_pw');
+    sessionStorage.removeItem('xbs_opr');
+    sessionStorage.removeItem('xbs_admin');
+    location.reload();
+  });
+}
+on('#btnLogout', 'click', doLogout);
+on('#btnLogoutTop', 'click', doLogout);
 
 on('#btnChpw', 'click', function () {
   dialog({
@@ -1330,10 +1343,22 @@ function enter() {
   if (g) g.remove();
   fillSelects();
   paintPrintHint();
-  setAdmin(sessionStorage.getItem('xbs_admin') === '1');
+  applyRole();
+  setAdmin(!isGuest() && sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
-  if (!operator) setTimeout(function () { askOperator(); }, 400);
+  if (!isGuest() && !operator) setTimeout(function () { askOperator(); }, 400);
+}
+
+/** 依身分調整畫面：訪客看不到後台、經手人、也沒有任何操作鈕 */
+function applyRole() {
+  var guest = isGuest();
+  var gt = $('#hdGuest'); if (gt) gt.hidden = !guest;
+  var ab = $('#btnAdmin'); if (ab) ab.hidden = guest;
+  var tab = $('nav.tabs button[data-page="counter"]');
+  if (tab) tab.textContent = guest ? '小幫手分配' : '領取／歸還';
+  var qlab = $('#page-counter .field > span');
+  if (qlab) qlab.textContent = guest ? '查小幫手分配：輸入姓名、組別或編號' : '搜尋姓名、組別或小幫手編號';
 }
 
 /** enter() 包一層：畫面出錯就只是提示，不會動到登入狀態 */

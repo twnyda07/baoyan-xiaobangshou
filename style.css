@@ -48,7 +48,8 @@ header.top {
 .top-in { max-width: 1120px; margin: 0 auto; padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
 .brand { font-weight: 700; letter-spacing: .04em; }
 .brand small { display: block; font-weight: 400; font-size: .72em; color: var(--ink-3); letter-spacing: .02em; }
-.top-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tag.guest { background: var(--accent-soft); border-color: #cfdfe6; color: var(--accent); font-weight: 600; }
 
 nav.tabs {
   display: flex; gap: 4px; overflow-x: auto; padding: 0 14px 8px;
