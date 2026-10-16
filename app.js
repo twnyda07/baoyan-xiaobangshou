@@ -6,13 +6,22 @@
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
 var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+/** 綁事件：元素不存在就安靜略過。
+ *  （HTML 與 JS 版本不同步時，少一個元素不該讓整支程式停掉、連登入都按不動） */
+function on(sel, ev, fn) {
+  var el = typeof sel === 'string' ? document.querySelector(sel) : sel;
+  if (el) el.addEventListener(ev, fn);
+  else if (window.console) console.warn('找不到元素，略過綁定：' + sel);
+  return el;
+}
+
 var esc = function (s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 };
 
-var BUILD = '2026-10-16c';
+var BUILD = '20261016d';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -1188,46 +1197,46 @@ function setAdmin(on) {
   renderCounter(); renderDash();
 }
 
-$('#btnAdmin').addEventListener('click', function () {
+on('#btnAdmin', 'click', function () {
   if (adminOn) { setAdmin(false); toast('已離開後台'); return; }
   setAdmin(true);
   showPage('roster');
   toast('後台管理：可以改分組、改名單、列印');
 });
 
-$('#q').addEventListener('input', renderCounter);
-$('#fBranch').addEventListener('change', renderCounter);
-$('#fStatus').addEventListener('change', renderCounter);
-$('#rBranch').addEventListener('change', renderRoster);
-$('#rQ').addEventListener('input', renderRoster);
-$('#btnSaveAll').addEventListener('click', saveAllDays);
-$('#btnDiscard').addEventListener('click', function () {
+on('#q', 'input', renderCounter);
+on('#fBranch', 'change', renderCounter);
+on('#fStatus', 'change', renderCounter);
+on('#rBranch', 'change', renderRoster);
+on('#rQ', 'input', renderRoster);
+on('#btnSaveAll', 'click', saveAllDays);
+on('#btnDiscard', 'click', function () {
   confirmBox('放棄變更', '剛剛勾的 ' + pendingCount() + ' 位領用日期都不存，確定嗎？', '放棄', 'danger')
     .then(function (yes) { if (!yes) return; pending = {}; renderRoster(); paintSaveBar(); toast('已放棄變更'); });
 });
 window.addEventListener('beforeunload', function (e) {
   if (pendingCount()) { e.preventDefault(); e.returnValue = ''; }
 });
-$('#btnReload').addEventListener('click', function () { load().then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
-$('#btnAddGroup').addEventListener('click', function () { editGroup(null); });
-$('#btnXls').addEventListener('click', function () { exportExcel('xls'); });
-$('#btnXlsx').addEventListener('click', function () { exportExcel('xlsx'); });
-$('#btnCsv').addEventListener('click', exportCsv);
+on('#btnReload', 'click', function () { load().then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
+on('#btnAddGroup', 'click', function () { editGroup(null); });
+on('#btnXls', 'click', function () { exportExcel('xls'); });
+on('#btnXlsx', 'click', function () { exportExcel('xlsx'); });
+on('#btnCsv', 'click', exportCsv);
 function paintPrintHint() { $('#pHint').textContent = PRINT_HINT[$('#pKind').value] || ''; }
-$('#pKind').addEventListener('change', paintPrintHint);
-$('#btnPrint').addEventListener('click', function () {
+on('#pKind', 'change', paintPrintHint);
+on('#btnPrint', 'click', function () {
   buildPrint($('#pKind').value, $('#pBranch').value);
   setTimeout(function () { window.print(); }, 80);
 });
-$('#hdWho').addEventListener('click', function () { askOperator(true); });
+on('#hdWho', 'click', function () { askOperator(true); });
 
-$('#btnLogout').addEventListener('click', function () {
+on('#btnLogout', 'click', function () {
   sessionStorage.removeItem('xbs_pw');
   sessionStorage.removeItem('xbs_opr');
   location.reload();
 });
 
-$('#btnChpw').addEventListener('click', function () {
+on('#btnChpw', 'click', function () {
   dialog({
     title: '變更密碼',
     body: '<p class="hint" style="margin:0 0 10px">改了之後所有人都要用新密碼，至少 6 個字。</p>' +
@@ -1266,11 +1275,11 @@ function backendDialog() {
     toast('已儲存後端網址');
   });
 }
-$('#btnBackend').addEventListener('click', backendDialog);
-$('#btnBackend2').addEventListener('click', backendDialog);
+on('#btnBackend', 'click', backendDialog);
+on('#btnBackend2', 'click', backendDialog);
 
 /** 進不來時的萬用解法：把這台存的東西全清掉，回到出廠設定重載 */
-$('#btnResetLocal').addEventListener('click', function () {
+on('#btnResetLocal', 'click', function () {
   confirmBox('重置這台',
     '會清掉這台瀏覽器存的密碼、後端網址、經手人與暫存，然後重新載入最新版網頁。\n\n雲端上的名單與紀錄完全不受影響。',
     '清掉並重新載入', 'danger')
@@ -1291,7 +1300,7 @@ function gateMsg(text, color) {
   el.style.color = color || '';
 }
 
-$('#gateForm').addEventListener('submit', function (e) {
+on('#gateForm', 'submit', function (e) {
   e.preventDefault();
   var raw = $('#pw').value;
   var v = cleanPw(raw);
