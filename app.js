@@ -33,7 +33,19 @@ function toast(msg, bad) {
 }
 
 /* ===================== 後端 ===================== */
+/** 對外的入口：密碼失效時先請使用者重新輸入，再把原本的動作重做一次 */
 function api(action, payload, tries) {
+  return rawApi(action, payload, tries).catch(function (e) {
+    // 還沒登入進來的時候（登入畫面still在）不要跳重新輸入，讓登入流程自己處理
+    if (!e || e.code !== 'BAD_PASSWORD' || $('#gate')) throw e;
+    return reauth().then(function (ok) {
+      if (!ok) throw e;
+      return rawApi(action, payload, tries);
+    });
+  });
+}
+
+function rawApi(action, payload, tries) {
   var url = backendUrl();
   if (!url) return Promise.reject(new Error('還沒設定後端網址'));
   var body = Object.assign({ action: action, pw: pw, by: operator }, payload || {});
@@ -68,7 +80,7 @@ function api(action, payload, tries) {
       if (tries > 0 && retryable) {
         var waitMs = 700 * (5 - tries);
         return new Promise(function (res) { setTimeout(res, waitMs); })
-          .then(function () { return api(action, payload, tries - 1); });
+          .then(function () { return rawApi(action, payload, tries - 1); });
       }
       if (e.retryable) e.message = '網路不穩，試了幾次都連不上後端，請稍後再按一次';
       throw e;
@@ -1254,19 +1266,30 @@ $('#btnBackend').addEventListener('click', backendDialog);
 $('#btnBackend2').addEventListener('click', backendDialog);
 
 /* ===================== 登入 ===================== */
+function isAuthError(e) { return e && (e.code === 'BAD_PASSWORD' || /密碼不正確/.test(e.message || '')); }
+
+function gateMsg(text, color) {
+  var el = $('#gateMsg');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || '';
+}
+
 $('#gateForm').addEventListener('submit', function (e) {
   e.preventDefault();
   var v = $('#pw').value;
   if (!v) return;
   $('#gateBtn').disabled = true;
-  $('#gateMsg').textContent = '核對中…';
+  gateMsg('核對中…');
   pw = v;
   load()
-    .then(function () { enter(); })
+    .then(function () {
+      // 進畫面的過程就算出錯，也絕不能把密碼清掉（否則會變成「看起來已登入、一存檔說密碼不正確」）
+      enterSafe();
+    })
     .catch(function (err) {
-      pw = '';
-      $('#gateMsg').textContent = err.message;
-      $('#gateMsg').style.color = 'var(--danger)';
+      if (isAuthError(err)) pw = '';
+      gateMsg(err.message, 'var(--danger)');
     })
     .finally(function () {
       var btn = $('#gateBtn'), inp = $('#pw');
@@ -1277,13 +1300,58 @@ $('#gateForm').addEventListener('submit', function (e) {
 
 function enter() {
   sessionStorage.setItem('xbs_pw', pw);
-  $('#gate').remove();
+  var g = $('#gate');
+  if (g) g.remove();
   fillSelects();
   paintPrintHint();
   setAdmin(sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
   if (!operator) setTimeout(function () { askOperator(); }, 400);
+}
+
+/** enter() 包一層：畫面出錯就只是提示，不會動到登入狀態 */
+function enterSafe() {
+  try {
+    enter();
+  } catch (err) {
+    var g = $('#gate');
+    if (g) g.remove();
+    sessionStorage.setItem('xbs_pw', pw);
+    toast('畫面有一處沒畫出來，但資料是好的：' + err.message, true);
+    if (window.console) console.error('enter() 失敗', err);
+  }
+}
+
+/** 密碼失效時（例如有人改了密碼）重新輸入，輸入完原本的動作會自動再跑一次，勾到一半的不會不見 */
+var reauthing = null;
+function reauth() {
+  if (reauthing) return reauthing;
+  reauthing = dialog({
+    title: '請重新輸入密碼',
+    body:
+      '<p class="hint" style="margin:0 0 10px">連線的密碼失效了（可能有人改過密碼）。重新輸入後，剛剛還沒存的資料會接著存，不會不見。</p>' +
+      '<label class="field"><span>密碼</span><input class="box" id="raPw" type="password" autocomplete="new-password" name="ra-' + Math.random().toString(36).slice(2) + '"></label>',
+    focus: '#raPw',
+    buttons: [
+      { label: '取消', value: null },
+      {
+        label: '確定', cls: 'primary',
+        collect: function (b) {
+          var v = $('#raPw', b).value.trim();
+          if (!v) { toast('請輸入密碼', true); return false; }
+          return v;
+        },
+      },
+    ],
+  }).then(function (v) {
+    reauthing = null;
+    if (!v) return false;
+    pw = v;
+    sessionStorage.setItem('xbs_pw', v);
+    return true;
+  });
+  return reauthing;
 }
 
 /* ===================== 啟動 ===================== */
@@ -1303,7 +1371,14 @@ function boot() {
   var saved = sessionStorage.getItem('xbs_pw');
   if (saved) {
     pw = saved;
-    load().then(enter).catch(function () { pw = ''; sessionStorage.removeItem('xbs_pw'); $('#pw').focus(); });
+    load()
+      .then(function () { enterSafe(); })
+      .catch(function (err) {
+        if (isAuthError(err)) { pw = ''; sessionStorage.removeItem('xbs_pw'); }
+        else gateMsg(err.message, 'var(--danger)');
+        var inp = $('#pw');
+        if (inp) inp.focus();
+      });
   } else {
     setTimeout(function () { $('#pw').focus(); }, 150);
   }
