@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261017a';
+var BUILD = '20261017b';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -33,6 +33,7 @@ var operator = '';
 var loading = false;
 var adminOn = false;
 var role = 'admin';              // admin＝工作人員（可領取歸還、可進後台）／guest＝訪客，只能看
+var counterMode = '';            // 領取／歸還頁看哪一類：''＝全部、free＝手上沒機器可領、out＝待歸還、back＝已歸還
 function isGuest() { return role === 'guest'; }
 
 function backendUrl() {
@@ -334,12 +335,19 @@ function doCheckout(m) {
     var branch = m.group.branch;
     var devs = availableDevices(branch);
     var free = devs.filter(function (d) { return d.status !== '維修' && d.status !== '遺失' && !d.holder; });
-    var opts = free.map(function (d) { return '<option value="' + esc(d.no) + '">' + esc(branch + ' ' + d.no) + '</option>'; }).join('');
+    var again = statusOf(m) === 'back' && m.no && free.some(function (d) { return d.no === m.no; });
+    var opts = free.map(function (d) {
+      return '<option value="' + esc(d.no) + '"' + (again && d.no === m.no ? ' selected' : '') + '>' +
+        esc(branch + ' ' + d.no) + (again && d.no === m.no ? '（上次這台）' : '') + '</option>';
+    }).join('');
 
     return dialog({
-      title: '登記領取 · ' + m.name,
+      title: (statusOf(m) === 'back' ? '再次領取 · ' : '登記領取 · ') + m.name,
       body:
         '<p class="hint" style="margin:0 0 12px">' + esc(m.group.name) + '　借用分院：' + esc(branch) + '　借用項目：' + esc(m.group.items || '—') + '</p>' +
+        (statusOf(m) === 'back'
+          ? '<p class="hint" style="margin:0 0 12px">上一次領 ' + esc(m.no || '未填') + '，已於 ' + esc((m.inAt || '').slice(5, 16)) + ' 歸還。這次重新發一台給他。</p>'
+          : '') +
         '<label class="field"><span>小幫手編號（' + branch + ' 還有 ' + free.length + ' 台可借）</span>' +
         '<select class="box" id="dSel">' + (opts || '<option value="">（沒有可借的機台）</option>') + '<option value="__other">其他／手動輸入編號…</option></select></label>' +
         '<label class="field" id="dOtherWrap" hidden><span>手動輸入編號</span><input class="box" id="dOther" autocomplete="off" placeholder="例：A12、備用機 3"></label>' +
@@ -570,7 +578,8 @@ function memberRow(m, opts) {
   if (s === 'idle') acts = '<button class="btn sm ok" data-act="out" data-id="' + m.id + '">領取</button>';
   else if (s === 'out') acts = '<button class="btn sm primary" data-act="in" data-id="' + m.id + '">歸還</button>' +
     '<button class="btn sm ghost" data-act="undo-out" data-id="' + m.id + '" title="取消領取">↩</button>';
-  else acts = '<button class="btn sm ghost" data-act="undo-in" data-id="' + m.id + '" title="取消歸還">↩</button>';
+  else acts = '<button class="btn sm ok" data-act="out" data-id="' + m.id + '">再領取</button>' +
+    '<button class="btn sm ghost" data-act="undo-in" data-id="' + m.id + '" title="取消歸還">↩</button>';
   if (adminOn) acts += '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="修改">✎</button>';
 
   var meta = [];
@@ -611,19 +620,65 @@ function rosterRow(m) {
     '</div>';
 }
 
+/** 四顆狀態鈕的數字與選中樣式 */
+function paintModes(n) {
+  var box = $('#cMode');
+  if (!box) return;
+  [].forEach.call(box.querySelectorAll('.mode'), function (b) {
+    var k = b.getAttribute('data-mode') || '';
+    b.classList.toggle('on', k === counterMode);
+    var c = b.querySelector('b');
+    if (c) c.textContent = n[k];
+  });
+}
+
+/** 分頁上的待歸還徽章：全場還有幾台在外面沒收回來 */
+function paintOutBadge() {
+  var el = $('#tabOutBadge');
+  if (!el) return;
+  var c = state.members.filter(function (m) { return statusOf(m) === 'out'; }).length;
+  el.textContent = c;
+  el.hidden = !c;
+}
+
+/** 查無資料時講清楚為什麼，不要只寫「沒有符合的人員」 */
+function counterEmptyMsg(n) {
+  if (!n['']) return '沒有符合的人員';
+  if (counterMode === 'out') {
+    return '目前沒有人在領取中，所以沒有要歸還的。' +
+      '<div class="hint" style="margin-top:6px">等有人按下「領取」，他就會出現在這裡，列上會有「歸還」鈕。</div>';
+  }
+  if (counterMode === 'free') return '這個範圍裡的人機器都還在手上，沒有人可以再發。';
+  if (counterMode === 'back') return '這一輪還沒有人完成歸還。';
+  return '沒有符合的人員';
+}
+
 function renderCounter() {
   var q = $('#q').value.trim().toLowerCase();
-  var fb = $('#fBranch').value, fs = $('#fStatus').value;
-  var rows = state.members.filter(function (m) {
+  var fb = $('#fBranch').value;
+  var base = state.members.filter(function (m) {
     if (fb && m.group.branch !== fb) return false;
-    if (fs && statusOf(m) !== fs) return false;
     if (!q) return true;
     return (m.name + ' ' + m.group.name + ' ' + (m.group.leader || '') + ' ' + (m.no || '') + ' ' + (m.phone || '')).toLowerCase().indexOf(q) >= 0;
+  });
+
+  var n = { '': base.length, free: 0, out: 0, back: 0 };
+  base.forEach(function (m) {
+    var s = statusOf(m);
+    if (s === 'out') n.out++; else n.free++;      // 手上沒機器的都算可領（沒領過的＋已還的）
+    if (s === 'back') n.back++;
+  });
+  paintModes(n);
+  paintOutBadge();
+
+  var rows = !counterMode ? base : base.filter(function (m) {
+    var s = statusOf(m);
+    return counterMode === 'free' ? s !== 'out' : s === counterMode;
   });
   $('#qCount').textContent = rows.length + ' 筆';
   $('#counterList').innerHTML = rows.length
     ? '<div class="list">' + rows.map(function (m) { return memberRow(m, { showGroup: true }); }).join('') + '</div>'
-    : '<div class="empty">沒有符合的人員</div>';
+    : '<div class="empty">' + counterEmptyMsg(n) + '</div>';
 }
 
 function renderDash() {
@@ -1319,7 +1374,12 @@ on('#btnAdmin', 'click', function () {
 
 on('#q', 'input', renderCounter);
 on('#fBranch', 'change', renderCounter);
-on('#fStatus', 'change', renderCounter);
+on('#cMode', 'click', function (e) {
+  var b = e.target.closest('.mode');
+  if (!b) return;
+  counterMode = b.getAttribute('data-mode') || '';
+  renderCounter();
+});
 on('#rBranch', 'change', renderRoster);
 on('#rQ', 'input', renderRoster);
 on('#btnSaveAll', 'click', saveAllDays);
@@ -1468,8 +1528,9 @@ function applyRole() {
   var guest = isGuest();
   var gt = $('#hdGuest'); if (gt) gt.hidden = !guest;
   var ab = $('#btnAdmin'); if (ab) ab.hidden = guest;
-  var tab = $('nav.tabs button[data-page="counter"]');
-  if (tab) tab.textContent = guest ? '小幫手分配' : '領取／歸還';
+  var tlab = $('#tabCounterLabel');
+  if (tlab) tlab.textContent = guest ? '小幫手分配' : '領取／歸還';
+  var oh = $('#dashOutHint'); if (oh) oh.hidden = guest;
   var qlab = $('#page-counter .field > span');
   if (qlab) qlab.textContent = guest ? '查小幫手分配：輸入姓名、組別或編號' : '搜尋姓名、組別或小幫手編號';
 }

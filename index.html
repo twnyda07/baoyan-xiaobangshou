@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>小幫手借用系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261017a">
+<link rel="stylesheet" href="style.css?v=20261017b">
 </head>
 <body>
 
@@ -44,7 +44,7 @@
     </div>
   </div>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-page="counter" aria-selected="true">領取／歸還</button>
+    <button role="tab" data-page="counter" aria-selected="true"><span id="tabCounterLabel">領取／歸還</span><span class="badge" id="tabOutBadge" hidden>0</span></button>
     <button role="tab" data-page="dash" aria-selected="false">總覽</button>
     <button role="tab" data-page="roster" data-admin aria-selected="false" hidden>名單管理</button>
     <button role="tab" data-page="devices" data-admin aria-selected="false" hidden>機台清冊</button>
@@ -58,6 +58,12 @@
   <!-- ---------- 領取／歸還 ---------- -->
   <section class="page on" id="page-counter">
     <div class="card">
+      <div class="modes" id="cMode">
+        <button type="button" class="mode on" data-mode="" title="名單上全部的人">全部 <b></b></button>
+        <button type="button" class="mode" data-mode="free" title="手上沒有機器，現在可以發給他（含還沒領過的、和已經還回來的）">可領取 <b></b></button>
+        <button type="button" class="mode warn" data-mode="out" title="機器還在他手上，要收回來">待歸還 <b></b></button>
+        <button type="button" class="mode" data-mode="back" title="這一輪已經還回來了">已歸還 <b></b></button>
+      </div>
       <label class="field" style="margin-bottom:10px">
         <span>搜尋姓名、組別或小幫手編號</span>
         <input class="box" id="q" type="search" placeholder="輸入姓名、組別或編號" autocomplete="off">
@@ -65,12 +71,6 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select class="box" id="fBranch" style="width:auto;min-width:120px">
           <option value="">全部分院</option>
-        </select>
-        <select class="box" id="fStatus" style="width:auto;min-width:130px">
-          <option value="">全部狀態</option>
-          <option value="idle">尚未領取</option>
-          <option value="out">領取中（未歸還）</option>
-          <option value="back">已歸還</option>
         </select>
         <span class="hint" id="qCount" style="margin-left:auto"></span>
       </div>
@@ -88,6 +88,7 @@
     <p class="hint" style="margin:0 0 10px">依名單上勾選的領用日期統計，每天各分院要準備幾台。</p>
     <div id="dashDays"></div>
     <h2 class="ttl">尚未歸還</h2>
+    <p class="hint" id="dashOutHint" style="margin:0 0 10px">這一列一列都可以直接按「歸還」登記回收，不用回上一頁重找。</p>
     <div id="dashOut"></div>
     <h2 class="ttl">重複出現的名字</h2>
     <p class="hint" style="margin:0 0 10px">同一個名字出現在兩組以上。可能是同一個人要領兩台，也可能是不同人同名——發放前先確認。</p>
@@ -175,7 +176,7 @@
 <div id="toast"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="config.js?v=20261017a"></script>
-<script src="app.js?v=20261017a"></script>
+<script src="config.js?v=20261017b"></script>
+<script src="app.js?v=20261017b"></script>
 </body>
 </html>

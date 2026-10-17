@@ -36,6 +36,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
 
+/* ---------- 領取／歸還 狀態切換 ---------- */
+.modes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.mode {
+  flex: 1 1 auto; min-width: 104px;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; color: var(--ink-2); font-size: .95rem; text-align: center;
+}
+.mode b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mode:hover { border-color: var(--ink-3); }
+.mode.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.mode.warn b { color: var(--warn); }
+.mode.warn.on { background: var(--warn); border-color: var(--warn); color: #fff; }
+.mode.warn.on b { color: #fff; }
+
+.badge {
+  display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 6px;
+  background: var(--warn); color: #fff; border-radius: 999px;
+  font-size: .78rem; font-weight: 700; line-height: 1.55; vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+nav.tabs button[aria-selected="true"] .badge { background: #fff; color: var(--accent); }
+
 /* ---------- 版面 ---------- */
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 14px 96px; }
 
