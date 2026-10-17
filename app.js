@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261016f';
+var BUILD = '20261017a';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -682,9 +682,27 @@ function renderDash() {
 }
 
 /* ---------- 名單管理：逐個勾選、最後一次儲存 ---------- */
-var pending = {};   // memberId -> 新的日期字串
+var pending = {};        // memberId -> 新的日期字串
+var pendingQty = {};     // groupId  -> 新的申請數量
 
-function pendingCount() { return Object.keys(pending).length; }
+function pendingCount() { return Object.keys(pending).length + Object.keys(pendingQty).length; }
+
+function qtyOf(g) { return pendingQty[g.id] != null ? pendingQty[g.id] : g.qty; }
+
+function setQty(gid, val) {
+  var g = state.gById[gid];
+  if (!g) return;
+  var n = parseInt(val, 10);
+  if (isNaN(n) || n < 0) n = 0;
+  if (n === g.qty) delete pendingQty[gid];
+  else pendingQty[gid] = n;
+  // 只更新那一組的摘要文字，不整頁重畫（免得把輸入游標弄掉）
+  var sum = $('details.grp[data-gid="' + gid + '"] .gm');
+  if (sum) sum.innerHTML = groupMeta(g);
+  var box = $('.qtybox[data-gid="' + gid + '"]');
+  if (box) box.classList.toggle('changed', pendingQty[gid] != null);
+  paintSaveBar();
+}
 
 /** 待存的變更裡，一天都沒勾的人（＝要從名單移除的） */
 function pendingEmpty() {
@@ -695,12 +713,20 @@ function pendingEmpty() {
 }
 
 function paintSaveBar() {
-  var n = pendingCount();
-  $('#rosterSave').hidden = n === 0;
+  var nM = Object.keys(pending).length;
+  var nG = Object.keys(pendingQty).length;
+  var bar = $('#rosterSave');
+  if (bar) bar.hidden = (nM + nG) === 0;
   var empties = pendingEmpty();
-  $('#rosterSaveMsg').textContent = n
-    ? '有 ' + n + ' 位的領用日期還沒存' + (empties.length ? '　·　其中 ' + empties.length + ' 位一天都沒勾，會從名單移除' : '')
-    : '';
+  var parts = [];
+  if (nM) parts.push(nM + ' 位的領用日期');
+  if (nG) parts.push(nG + ' 組的申請數量');
+  var msg = $('#rosterSaveMsg');
+  if (msg) {
+    msg.textContent = parts.length
+      ? '有 ' + parts.join('、') + '還沒存' + (empties.length ? '　·　其中 ' + empties.length + ' 位一天都沒勾，會從名單移除' : '')
+      : '';
+  }
 }
 
 function daysOf(m) {
@@ -743,8 +769,9 @@ function toggleDay(mid, day) {
 
 function saveAllDays() {
   var items = Object.keys(pending).map(function (id) { return { memberId: id, '領用日期': pending[id] }; });
-  if (!items.length) return;
-  var n = items.length;
+  var groupItems = Object.keys(pendingQty).map(function (gid) { return { groupId: gid, '數量': pendingQty[gid] }; });
+  if (!items.length && !groupItems.length) return;
+  var n = items.length, nG = groupItems.length;
   var empties = pendingEmpty();
 
   var ask = empties.length
@@ -758,14 +785,20 @@ function saveAllDays() {
 
   return ask.then(function (yes) {
     if (!yes) return;
-    $('#btnSaveAll').disabled = true;
-    $('#rosterSaveMsg').textContent = '儲存中…（' + n + ' 筆）';
-    return api('saveMembersBulk', { items: items })
+    var btn = $('#btnSaveAll'), msg = $('#rosterSaveMsg');
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = '儲存中…';
+    return api('saveMembersBulk', { items: items, groups: groupItems })
       .then(function (r) {
         pending = {};
+        pendingQty = {};
         var del = (r['已移除'] || []).length;
         var held = r['未歸還未移除'] || [];
-        toast('已儲存 ' + (n - del) + ' 位' + (del ? '，移除 ' + del + ' 位' : ''));
+        var said = [];
+        if (n - del > 0) said.push((n - del) + ' 位名單');
+        if (nG) said.push(nG + ' 組數量');
+        if (del) said.push('移除 ' + del + ' 位');
+        toast('已儲存' + (said.length ? '：' + said.join('、') : ''));
         if (held.length) {
           setTimeout(function () {
             toast(held.join('、') + ' 手上的小幫手還沒歸還，先留在名單上', true);
@@ -774,8 +807,20 @@ function saveAllDays() {
         return load();
       })
       .catch(function (e) { toast(e.message, true); paintSaveBar(); })
-      .finally(function () { $('#btnSaveAll').disabled = false; });
+      .finally(function () { var b = $('#btnSaveAll'); if (b) b.disabled = false; });
   });
+}
+
+/** 組別摘要文字：分區、組長、申請數量 vs 名單人數 */
+function groupMeta(g) {
+  var ms = membersOf(g.id);
+  var qty = qtyOf(g);
+  var diff = qty - ms.length;
+  return esc(g.zone ? g.zone + ' ' + g.zoneName + '　·　' : '') +
+    '組長 ' + esc(g.leader || '—') + '　·　' +
+    '申請 <b>' + qty + '</b> 組　·　名單 ' + ms.length + ' 人' +
+    (diff > 0 ? '　·　<b style="color:var(--warn)">還缺 ' + diff + ' 位</b>'
+      : diff < 0 ? '　·　<b style="color:var(--danger)">多 ' + (-diff) + ' 位</b>' : '　·　<b style="color:var(--ok)">剛好</b>');
 }
 
 function renderRoster() {
@@ -793,13 +838,15 @@ function renderRoster() {
   $('#rosterList').innerHTML = groups.length ? groups.map(function (g) {
     var ms = membersOf(g.id);
     var out = ms.filter(function (m) { return statusOf(m) === 'out'; }).length;
-    var short = g.qty - ms.length;
-    return '<details class="grp"><summary>' +
+    return '<details class="grp" data-gid="' + g.id + '"><summary>' +
       '<span class="gn">' + esc(g.name) + '</span>' +
       '<span class="tag branch">' + esc(g.branch) + '</span>' +
-      '<span class="gm">' + esc(g.zone ? g.zone + ' ' + g.zoneName + '　·　' : '') + '組長 ' + esc(g.leader || '—') + '　·　' + g.qty + ' 組 / 名單 ' + ms.length + ' 人</span>' +
+      '<span class="gm">' + groupMeta(g) + '</span>' +
       '<span class="gs">' +
-      (short > 0 ? '<span class="tag">還缺 ' + short + ' 位</span>' : '') +
+      '<span class="qtybox' + (pendingQty[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id + '" title="這一組申請的總量，可以直接改">' +
+      '<span>申請</span>' +
+      '<input type="number" min="0" max="999" class="qty" data-gid="' + g.id + '" value="' + qtyOf(g) + '">' +
+      '<span>組</span></span>' +
       (out ? '<span class="tag out">' + out + ' 台未還</span>' : '') +
       '</span></summary>' +
       '<div class="grp-body">' +
@@ -820,13 +867,23 @@ function renderDevices() {
     var ds = state.devices.filter(function (d) { return d.branch === b; })
       .sort(function (x, y) { return (parseInt(x.no, 10) || 0) - (parseInt(y.no, 10) || 0); });
     var busy = ds.filter(function (d) { return holder[b + '/' + d.no]; }).length;
+    // 各組申請數量加總＝這個分院應該要備的台數
+    var need = state.groups.filter(function (g) { return g.branch === b; })
+      .reduce(function (s, g) { return s + g.qty; }, 0);
+    var gap = need - ds.length;
     return '<div class="card">' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">' +
       '<b style="font-size:1.05rem">' + b + '</b>' +
-      '<span class="tag">共 ' + ds.length + ' 台</span>' +
+      '<span class="tag">清冊 ' + ds.length + ' 台</span>' +
+      '<span class="tag' + (gap ? ' dup' : '') + '">各組申請共 ' + need + ' 台</span>' +
       '<span class="tag out">借出 ' + busy + '</span>' +
       '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>' +
       '</div>' +
+      (gap ? '<div class="note" style="margin:0 0 12px">' +
+        '<b>對不上：</b>各組申請共 <b>' + need + '</b> 台，清冊只有 <b>' + ds.length + '</b> 台（' +
+        (gap > 0 ? '少 ' + gap : '多 ' + (-gap)) + ' 台）。' +
+        '<button class="btn sm primary" data-act="sync-dev" data-branch="' + b + '" data-need="' + need + '" style="margin-left:8px">依申請數量調成 ' + need + ' 台</button>' +
+        '</div>' : '') +
       (ds.length ? '<div class="devgrid">' + ds.map(function (d) {
         var who = holder[b + '/' + d.no];
         var st = who ? '借出' : d.status;
@@ -1130,6 +1187,27 @@ function deviceDialog(branch, no) {
   }).catch(function (e) { toast(e.message, true); });
 }
 
+/** 依各組申請數量的加總，把某分院的機台清冊調成一樣多 */
+function syncDevices(branch, need) {
+  confirmBox(branch + ' · 調整機台清冊',
+    '把 ' + branch + ' 的機台清冊調成 ' + need + ' 台（＝該分院各組申請數量的加總）。\n\n' +
+    '已經存在的編號與狀態會保留，只是補上或拿掉後面的編號。',
+    '調成 ' + need + ' 台', 'primary')
+    .then(function (yes) {
+      if (!yes) return;
+      return api('resetDevices', { branch: branch, count: need })
+        .catch(function (e) {
+          if (e.code !== 'DEVICE_BUSY') throw e;
+          return confirmBox('還有借出中', e.message + '\n\n仍要調整嗎？', '仍要調整', 'danger').then(function (y) {
+            if (!y) throw new Error('已取消');
+            return api('resetDevices', { branch: branch, count: need, force: true });
+          });
+        })
+        .then(function () { toast(branch + ' 機台清冊已調成 ' + need + ' 台'); return load(); });
+    })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
 function resetDevices(branch) {
   var cur = state.devices.filter(function (d) { return d.branch === branch; }).length;
   dialog({
@@ -1166,6 +1244,18 @@ function resetDevices(branch) {
 /* ===================== 事件 ===================== */
 function byId(id) { return state.members.filter(function (m) { return m.id === id; })[0]; }
 
+/* 申請數量：在 <summary> 裡面，要擋掉冒泡免得一點就把組別收合 */
+document.addEventListener('click', function (e) {
+  if (e.target.closest('.qtybox')) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+document.addEventListener('input', function (e) {
+  var box = e.target.closest('input.qty');
+  if (box) setQty(box.dataset.gid, box.value);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.target.closest('input.qty') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+});
+
 document.addEventListener('click', function (e) {
   var day = e.target.closest('.daystrip .dayb');
   if (day) {
@@ -1184,6 +1274,7 @@ document.addEventListener('click', function (e) {
   else if (act === 'edit-group') editGroup(state.gById[b.dataset.gid]);
   else if (act === 'dev') deviceDialog(b.dataset.branch, b.dataset.no);
   else if (act === 'reset-dev') resetDevices(b.dataset.branch);
+  else if (act === 'sync-dev') syncDevices(b.dataset.branch, parseInt(b.dataset.need, 10));
 });
 
 // 對話框裡「其他…」的連動
@@ -1233,8 +1324,12 @@ on('#rBranch', 'change', renderRoster);
 on('#rQ', 'input', renderRoster);
 on('#btnSaveAll', 'click', saveAllDays);
 on('#btnDiscard', 'click', function () {
-  confirmBox('放棄變更', '剛剛勾的 ' + pendingCount() + ' 位領用日期都不存，確定嗎？', '放棄', 'danger')
-    .then(function (yes) { if (!yes) return; pending = {}; renderRoster(); paintSaveBar(); toast('已放棄變更'); });
+  confirmBox('放棄變更', '剛剛改的 ' + pendingCount() + ' 筆（領用日期與申請數量）都不存，確定嗎？', '放棄', 'danger')
+    .then(function (yes) {
+      if (!yes) return;
+      pending = {}; pendingQty = {};
+      renderRoster(); paintSaveBar(); toast('已放棄變更');
+    });
 });
 window.addEventListener('beforeunload', function (e) {
   if (pendingCount()) { e.preventDefault(); e.returnValue = ''; }

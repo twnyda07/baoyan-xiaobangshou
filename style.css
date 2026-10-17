@@ -146,6 +146,23 @@ table.daytab tr:last-child td { border-bottom: none; }
 .dayb.all { min-width: 32px; color: var(--ink-3); background: none; }
 .dayb.all:hover { border-color: var(--ink-3); }
 
+/* 組別的申請數量，可以直接改 */
+.qtybox {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--paper-2);
+  font-size: .82rem; color: var(--ink-3); white-space: nowrap;
+}
+.qtybox.changed { background: var(--warn-soft); border-color: #e5d5ae; color: var(--warn); font-weight: 600; }
+.qtybox input.qty {
+  width: 3.2em; padding: 3px 4px; text-align: center; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--paper); color: var(--ink);
+  font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.qtybox input.qty::-webkit-outer-spin-button,
+.qtybox input.qty::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qtybox input.qty:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
 /* 儲存列 */
 .savebar {
   position: sticky; bottom: 12px; z-index: 20; margin-top: 14px;
