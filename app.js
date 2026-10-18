@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018d';
+var BUILD = '20261018e';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -33,6 +33,7 @@ var operator = '';
 var loading = false;
 var adminOn = false;
 var role = 'admin';              // admin＝工作人員（可領取歸還、可進後台）／guest＝訪客，只能看
+var dashMode = 'branch';         // 總覽看哪一種：branch＝看分院、device＝看機台
 var counterMode = '';            // 領取／歸還頁看哪一類：''＝全部、free＝手上沒機器可領、out＝待歸還、back＝已歸還
 var viewEventId = null;          // 正在看哪一場活動（null＝目前這一場）
 var adminBy = sessionStorage.getItem('xbs_adminby') || '';   // 誰進的後台，會記進紀錄
@@ -720,8 +721,10 @@ function counterGrouped(rows, expand) {
 function renderCounter() {
   var q = $('#q').value.trim().toLowerCase();
   var fb = $('#fBranch').value;
+  var fg = ($('#fGroup') || {}).value || '';
   var base = state.members.filter(function (m) {
     if (fb && m.group.branch !== fb) return false;
+    if (fg && m.groupId !== fg) return false;
     if (!q) return true;
     return (m.name + ' ' + m.group.name + ' ' + (m.group.leader || '') + ' ' + (m.no || '') + ' ' + (m.phone || '')).toLowerCase().indexOf(q) >= 0;
   });
@@ -752,6 +755,19 @@ function renderCounter() {
   }
 }
 
+/** 總覽的「看分院／看機台」切換 */
+function paintDashMode() {
+  var box = $('#dashMode');
+  if (box) {
+    [].forEach.call(box.querySelectorAll('.mode'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-dash') === dashMode);
+    });
+  }
+  var br = $('#dashBranches'), dv = $('#dashDevices');
+  if (br) br.hidden = dashMode !== 'branch';
+  if (dv) dv.hidden = dashMode !== 'device';
+}
+
 function renderDash() {
   var all = state.members;
   var cnt = function (arr, s) { return arr.filter(function (m) { return statusOf(m) === s; }).length; };
@@ -769,6 +785,35 @@ function renderDash() {
   }
 
   $('#dashTotal').innerHTML = statsHtml(all, qtySum);
+
+  paintDashMode();
+  $('#dashDevices').innerHTML = BRANCHES.map(function (b) {
+    var ds = state.devices.filter(function (d) { return d.branch === b; })
+      .sort(function (x, y) { return (parseInt(x.no, 10) || 0) - (parseInt(y.no, 10) || 0); });
+    var holder = {};
+    state.members.forEach(function (m) {
+      if (m.outAt && !m.inAt && m.no && m.group && m.group.branch === b) holder[m.no] = m.name;
+    });
+    var busy = ds.filter(function (d) { return holder[d.no]; }).length;
+    var bad = ds.filter(function (d) { return d.status === '維修' || d.status === '遺失'; }).length;
+    return '<div class="card">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">' +
+      '<b style="font-size:1.05rem">' + b + '</b>' +
+      '<span class="tag">清冊 ' + ds.length + ' 台</span>' +
+      '<span class="tag out">借出 ' + busy + '</span>' +
+      '<span class="tag back">在架上 ' + (ds.length - busy - bad) + '</span>' +
+      (bad ? '<span class="tag dup">維修／遺失 ' + bad + '</span>' : '') +
+      '</div>' +
+      (ds.length
+        ? '<div class="devgrid">' + ds.map(function (d) {
+            var who = holder[d.no];
+            var st = who ? '借出' : d.status;
+            return '<span class="dev s-' + esc(st) + '" title="' + esc(d.no + '　' + (who ? who + ' 持用中' : st)) + '">' +
+              '<b>' + esc(d.no) + '</b><small>' + esc(who || st) + '</small></span>';
+          }).join('') + '</div>'
+        : '<div class="empty">還沒建立機台清冊</div>') +
+      '</div>';
+  }).join('');
 
   $('#dashBranches').innerHTML = BRANCHES.map(function (b) {
     var arr = all.filter(function (m) { return m.group.branch === b; });
@@ -1044,6 +1089,26 @@ function fillSelects() {
     el.innerHTML = '<option value="">全部分院</option>' + BRANCHES.map(function (b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
     el.value = cur;
   });
+  paintGroupFilter();
+}
+
+/** 組別下拉：跟著分院收斂，只列那個分院的組別 */
+function paintGroupFilter() {
+  var el = $('#fGroup');
+  if (!el) return;
+  var branch = ($('#fBranch') || {}).value || '';
+  var cur = el.value;
+  var gs = state.groups
+    .filter(function (g) { return !branch || g.branch === branch; })
+    .sort(function (x, y) {
+      if (x.zone !== y.zone) return (x.zone || '') < (y.zone || '') ? -1 : 1;
+      return (parseInt(x.seq, 10) || 0) - (parseInt(y.seq, 10) || 0);
+    });
+  el.innerHTML = '<option value="">全部組別</option>' + gs.map(function (g) {
+    return '<option value="' + esc(g.id) + '">' + esc(g.name) + (branch ? '' : '（' + esc(g.branch) + '）') + '</option>';
+  }).join('');
+  // 換分院之後原本選的組別可能不在清單裡了，就退回「全部組別」
+  el.value = gs.some(function (g) { return g.id === cur; }) ? cur : '';
 }
 
 /** 會寫入的那幾顆鈕：唯讀時（訪客或已關閉的活動）一律藏起來。每次重畫都要重算。 */
@@ -1717,7 +1782,15 @@ function askAdminName() {
 }
 
 on('#q', 'input', renderCounter);
-on('#fBranch', 'change', renderCounter);
+on('#fBranch', 'change', function () { paintGroupFilter(); renderCounter(); });
+on('#fGroup', 'change', renderCounter);
+on('#dashMode', 'click', function (e) {
+  var b = e.target.closest('.mode');
+  if (!b) return;
+  dashMode = b.getAttribute('data-dash') || 'branch';
+  paintDashMode();
+});
+
 on('#cMode', 'click', function (e) {
   var b = e.target.closest('.mode');
   if (!b) return;

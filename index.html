@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>小幫手借用系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261018d">
+<link rel="stylesheet" href="style.css?v=20261018e">
 </head>
 <body>
 
@@ -75,6 +75,9 @@
         <select class="box" id="fBranch" style="width:auto;min-width:120px">
           <option value="">全部分院</option>
         </select>
+        <select class="box" id="fGroup" style="width:auto;min-width:150px">
+          <option value="">全部組別</option>
+        </select>
         <span class="hint" id="qCount" style="margin-left:auto"></span>
       </div>
     </div>
@@ -88,8 +91,13 @@
   <section class="page" id="page-dash">
     <h2 class="ttl">全場</h2>
     <div class="stats" id="dashTotal"></div>
-    <h2 class="ttl">各分院</h2>
+    <h2 class="ttl">分院與機台</h2>
+    <div class="modes" id="dashMode" style="margin-bottom:12px">
+      <button type="button" class="mode on" data-dash="branch" title="每個分院各有幾人領了、幾台還沒還">看分院</button>
+      <button type="button" class="mode" data-dash="device" title="每一台機器現在在誰手上">看機台</button>
+    </div>
     <div id="dashBranches"></div>
+    <div id="dashDevices" hidden></div>
     <h2 class="ttl">每日需用台數</h2>
     <p class="hint" style="margin:0 0 10px">依名單上勾選的領用日期統計，每天各分院要準備幾台。</p>
     <div id="dashDays"></div>
@@ -198,7 +206,7 @@
 <div id="toast"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="config.js?v=20261018d"></script>
-<script src="app.js?v=20261018d"></script>
+<script src="config.js?v=20261018e"></script>
+<script src="app.js?v=20261018e"></script>
 </body>
 </html>
