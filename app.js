@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018b';
+var BUILD = '20261018c';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -670,6 +670,37 @@ function counterEmptyMsg(n) {
   return '沒有符合的人員';
 }
 
+/**
+ * 訪客的主畫面：依組別分組，不要把 142 個人一條條攤開。
+ * 預設收合，只看得到組別標題；一搜尋或一篩狀態就自動展開，才找得到人。
+ */
+function counterGrouped(rows, expand) {
+  var byG = {};
+  rows.forEach(function (m) { (byG[m.groupId] = byG[m.groupId] || []).push(m); });
+  var gs = state.groups.filter(function (g) { return byG[g.id] && byG[g.id].length; })
+    .sort(function (x, y) {
+      if (x.zone !== y.zone) return (x.zone || '') < (y.zone || '') ? -1 : 1;
+      return (parseInt(x.seq, 10) || 0) - (parseInt(y.seq, 10) || 0);
+    });
+  return gs.map(function (g) {
+    var ms = byG[g.id];
+    var out = ms.filter(function (m) { return statusOf(m) === 'out'; }).length;
+    var back = ms.filter(function (m) { return statusOf(m) === 'back'; }).length;
+    return '<details class="grp"' + (expand ? ' open' : '') + '><summary>' +
+      '<span class="gn">' + esc(g.name) + '</span>' +
+      '<span class="tag branch">' + esc(g.branch) + '</span>' +
+      '<span class="gm">' + groupMeta(g) + '</span>' +
+      '<span class="gs">' +
+      (out ? '<span class="tag out">' + out + ' 台未還</span>' : '') +
+      (back ? '<span class="tag back">已還 ' + back + '</span>' : '') +
+      '<span class="tag">' + ms.length + ' 人</span>' +
+      '</span></summary>' +
+      '<div class="grp-body"><div class="list">' +
+      ms.map(function (m) { return memberRow(m, {}); }).join('') +
+      '</div></div></details>';
+  }).join('');
+}
+
 function renderCounter() {
   var q = $('#q').value.trim().toLowerCase();
   var fb = $('#fBranch').value;
@@ -693,9 +724,16 @@ function renderCounter() {
     return counterMode === 'free' ? s !== 'out' : s === counterMode;
   });
   $('#qCount').textContent = rows.length + ' 筆';
-  $('#counterList').innerHTML = rows.length
-    ? '<div class="list">' + rows.map(function (m) { return memberRow(m, { showGroup: true }); }).join('') + '</div>'
-    : '<div class="empty">' + counterEmptyMsg(n) + '</div>';
+
+  if (!rows.length) {
+    $('#counterList').innerHTML = '<div class="empty">' + counterEmptyMsg(n) + '</div>';
+  } else if (isGuest()) {
+    // 訪客看分組名單；有在搜尋或篩狀態時自動展開
+    $('#counterList').innerHTML = counterGrouped(rows, !!(q || counterMode));
+  } else {
+    $('#counterList').innerHTML =
+      '<div class="list">' + rows.map(function (m) { return memberRow(m, { showGroup: true }); }).join('') + '</div>';
+  }
 }
 
 function renderDash() {
@@ -1822,6 +1860,8 @@ function applyRole() {
   }
   var qlab = $('#page-counter .field > span');
   if (qlab) qlab.textContent = guest ? '查小幫手分配：輸入姓名、組別或編號' : '搜尋姓名、組別或小幫手編號';
+  var gh = $('#counterGuestHint');
+  if (gh) gh.hidden = !guest;
 }
 
 /** enter() 包一層：畫面出錯就只是提示，不會動到登入狀態 */
