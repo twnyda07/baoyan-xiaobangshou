@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018e';
+var BUILD = '20261018f';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -110,6 +110,12 @@ function rawApi(action, payload, tries) {
         var err = new Error(data.error || '操作失敗');
         err.code = data.code;
         err.data = data;        // 後端附帶的細節（例如還沒歸還的人名）
+        // 別人正在存檔 → 自己等一下重送，不要丟給現場的人處理
+        if (data.code === 'BUSY') err.retryable = true;
+        // 這幾種都代表「我手上的畫面跟雲端對不上了」→ 自己去把最新的抓回來
+        if (data.code === 'DEVICE_BUSY' || data.code === 'ALREADY_OUT' || data.code === 'EVENT_CLOSED') {
+          setTimeout(function () { load(true).catch(function () {}); }, 400);
+        }
         throw err;
       }
       return data;
@@ -126,6 +132,49 @@ function rawApi(action, payload, tries) {
       if (retryable) e.message = '連不上系統（網路不穩或剛好在更新），等十秒再按一次';
       throw e;
     });
+}
+
+/* ===================== 自動更新 ===================== */
+/**
+ * 現場會有好幾位執事同時在不同手機上登記。沒有自動更新的話，
+ * 每支手機的畫面幾分鐘後就各自過期，兩個人會對著不同的真相操作。
+ * 但也不能說更新就更新——正在打字、正在看對話框、有沒存的改動時都要讓開。
+ */
+var AUTO_MS = 30000;          // 每 30 秒看一次
+var IDLE_MS = 8000;           // 剛碰過畫面的 8 秒內不要動他
+var lastTouch = 0;
+var autoTimer = null;
+
+function markTouch() { lastTouch = Date.now(); }
+
+function canAutoRefresh() {
+  if (document.hidden) return false;                       // 手機收在口袋裡就別打了
+  if ($('#gate')) return false;                            // 還沒登入
+  if (loading) return false;                               // 已經在載了
+  var dlg = $('#dlg');
+  if (dlg && dlg.open) return false;                       // 正在對話框裡做事
+  if (Object.keys(pending).length || Object.keys(pendingQty).length) return false;  // 有沒存的改動
+  if (document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return false;
+  if (Date.now() - lastTouch < IDLE_MS) return false;      // 剛剛還在操作
+  return true;
+}
+
+function autoRefresh() {
+  if (!canAutoRefresh()) return;
+  var y = window.scrollY;                                  // 重畫之後把捲動位置放回去，不要讓人跟丟
+  load(true).then(function () { window.scrollTo(0, y); }).catch(function () {});
+}
+
+function startAuto() {
+  if (autoTimer) return;
+  autoTimer = setInterval(autoRefresh, AUTO_MS);
+  ['click', 'keydown', 'input', 'touchstart', 'scroll'].forEach(function (ev) {
+    document.addEventListener(ev, markTouch, { passive: true });
+  });
+  // 手機從口袋拿出來的那一刻，先把最新的抓回來
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { markTouch(); setTimeout(autoRefresh, IDLE_MS + 200); }
+  });
 }
 
 /* ===================== 資料正規化 ===================== */
@@ -1940,6 +1989,7 @@ function enter() {
   setAdmin(sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
+  startAuto();
   if (!isGuest() && !operator) setTimeout(function () { askOperator(); }, 400);
 }
 
