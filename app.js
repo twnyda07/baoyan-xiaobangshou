@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261017b';
+var BUILD = '20261018a';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -616,7 +616,7 @@ function rosterRow(m) {
     (m.phone ? '<span class="meta">' + esc(m.phone) + '</span>' : '') +
     '</div>' +
     rosterDayStrip(m) +
-    '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>' +
+    (isGuest() ? '' : '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>') +
     '</div>';
 }
 
@@ -795,9 +795,10 @@ function rosterDayStrip(m) {
     (cur.length ? '' : ' title="一天都沒勾，儲存時會從名單移除"') + '>' +
     (cur.length ? '' : '<span class="willdel">移除</span>') +
     allDays().map(function (d) {
-      return '<button type="button" class="dayb' + (cur.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + esc(d) + '">' + esc(d) + '</button>';
+      return '<button type="button" class="dayb' + (cur.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + esc(d) + '"' +
+        (isGuest() ? ' disabled' : '') + '>' + esc(d) + '</button>';
     }).join('') +
-    '<button type="button" class="dayb all" data-day="__all">全</button>' +
+    (isGuest() ? '' : '<button type="button" class="dayb all" data-day="__all">全</button>') +
     '</div>';
 }
 
@@ -898,17 +899,21 @@ function renderRoster() {
       '<span class="tag branch">' + esc(g.branch) + '</span>' +
       '<span class="gm">' + groupMeta(g) + '</span>' +
       '<span class="gs">' +
-      '<span class="qtybox' + (pendingQty[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id + '" title="這一組申請的總量，可以直接改">' +
+      '<span class="qtybox' + (pendingQty[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id +
+      '" title="這一組申請的總量' + (isGuest() ? '' : '，可以直接改') + '">' +
       '<span>申請</span>' +
-      '<input type="number" min="0" max="999" class="qty" data-gid="' + g.id + '" value="' + qtyOf(g) + '">' +
+      (isGuest()
+        ? '<b class="qtyro">' + esc(String(qtyOf(g))) + '</b>'
+        : '<input type="number" min="0" max="999" class="qty" data-gid="' + g.id + '" value="' + qtyOf(g) + '">') +
       '<span>組</span></span>' +
       (out ? '<span class="tag out">' + out + ' 台未還</span>' : '') +
       '</span></summary>' +
       '<div class="grp-body">' +
       (ms.length ? ms.map(function (m) { return rosterRow(m); }).join('') : '<div class="empty">名單還沒填</div>') +
       '<div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line-soft)">' +
-      '<button class="btn sm" data-act="add-member" data-gid="' + g.id + '">＋ 新增人員</button>' +
-      '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>' +
+      (isGuest() ? '' :
+        '<button class="btn sm" data-act="add-member" data-gid="' + g.id + '">＋ 新增人員</button>' +
+        '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>') +
       '<span class="hint" style="margin-left:auto;align-self:center">借用項目：' + esc(g.items || '—') + '</span>' +
       '</div></div></details>';
   }).join('') : '<div class="empty">沒有符合的組別</div>';
@@ -932,17 +937,18 @@ function renderDevices() {
       '<span class="tag">清冊 ' + ds.length + ' 台</span>' +
       '<span class="tag' + (gap ? ' dup' : '') + '">各組申請共 ' + need + ' 台</span>' +
       '<span class="tag out">借出 ' + busy + '</span>' +
-      '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>' +
+      (isGuest() ? '' : '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>') +
       '</div>' +
       (gap ? '<div class="note" style="margin:0 0 12px">' +
         '<b>對不上：</b>各組申請共 <b>' + need + '</b> 台，清冊只有 <b>' + ds.length + '</b> 台（' +
         (gap > 0 ? '少 ' + gap : '多 ' + (-gap)) + ' 台）。' +
-        '<button class="btn sm primary" data-act="sync-dev" data-branch="' + b + '" data-need="' + need + '" style="margin-left:8px">依申請數量調成 ' + need + ' 台</button>' +
+        (isGuest() ? '' : '<button class="btn sm primary" data-act="sync-dev" data-branch="' + b + '" data-need="' + need + '" style="margin-left:8px">依申請數量調成 ' + need + ' 台</button>') +
         '</div>' : '') +
       (ds.length ? '<div class="devgrid">' + ds.map(function (d) {
         var who = holder[b + '/' + d.no];
         var st = who ? '借出' : d.status;
-        return '<button type="button" class="dev s-' + st + '" data-act="dev" data-branch="' + b + '" data-no="' + esc(d.no) + '">' +
+        return '<button type="button" class="dev s-' + st + '" data-act="dev" data-branch="' + b + '" data-no="' + esc(d.no) + '"' +
+          (isGuest() ? ' disabled' : '') + '>' +
           '<b>' + esc(d.no) + '</b><small>' + esc(who || st) + '</small></button>';
       }).join('') + '</div>' : '<div class="empty">還沒建立機台清冊</div>') +
       '</div>';
@@ -1305,7 +1311,7 @@ document.addEventListener('click', function (e) {
 }, true);
 document.addEventListener('input', function (e) {
   var box = e.target.closest('input.qty');
-  if (box) setQty(box.dataset.gid, box.value);
+  if (box && !isGuest()) setQty(box.dataset.gid, box.value);
 });
 document.addEventListener('keydown', function (e) {
   if (e.target.closest('input.qty') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
@@ -1314,12 +1320,15 @@ document.addEventListener('keydown', function (e) {
 document.addEventListener('click', function (e) {
   var day = e.target.closest('.daystrip .dayb');
   if (day) {
+    if (isGuest()) return;                 // 訪客唯讀：領用日期不給點
     toggleDay(day.closest('.daystrip').dataset.mid, day.dataset.day);
     return;
   }
   var b = e.target.closest('[data-act]');
   if (!b) return;
   var act = b.dataset.act;
+  // 訪客唯讀：data-act 全部都是會寫入的動作，一律擋下（伺服器端還有一道）
+  if (isGuest()) { toast('訪客帳號只能查看，不能修改', true); return; }
   if (act === 'out') doCheckout(byId(b.dataset.id));
   else if (act === 'in') doReturn(byId(b.dataset.id));
   else if (act === 'undo-out') doUndo(byId(b.dataset.id), 'checkout');
@@ -1353,7 +1362,9 @@ function setAdmin(on) {
   adminOn = !!on;
   $$('nav.tabs button[data-admin]').forEach(function (b) { b.hidden = !adminOn; });
   var btn = $('#btnAdmin');
-  btn.textContent = adminOn ? '離開後台' : '後台管理';
+  btn.textContent = isGuest()
+    ? (adminOn ? '收起完整資料' : '完整資料')
+    : (adminOn ? '離開後台' : '後台管理');
   btn.className = 'btn sm' + (adminOn ? ' ghost' : '');
   if (adminOn) sessionStorage.setItem('xbs_admin', '1');
   else sessionStorage.removeItem('xbs_admin');
@@ -1366,10 +1377,11 @@ function setAdmin(on) {
 }
 
 on('#btnAdmin', 'click', function () {
-  if (adminOn) { setAdmin(false); toast('已離開後台'); return; }
+  if (adminOn) { setAdmin(false); toast(isGuest() ? '已收起' : '已離開後台'); return; }
   setAdmin(true);
   showPage('roster');
-  toast('後台管理：可以改分組、改名單、列印');
+  toast(isGuest() ? '完整資料：名單、機台、操作紀錄、列印下載都看得到，但不能修改'
+                  : '後台管理：可以改分組、改名單、列印');
 });
 
 on('#q', 'input', renderCounter);
@@ -1517,7 +1529,7 @@ function enter() {
   fillSelects();
   paintPrintHint();
   applyRole();
-  setAdmin(!isGuest() && sessionStorage.getItem('xbs_admin') === '1');
+  setAdmin(sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
   if (!isGuest() && !operator) setTimeout(function () { askOperator(); }, 400);
@@ -1527,10 +1539,18 @@ function enter() {
 function applyRole() {
   var guest = isGuest();
   var gt = $('#hdGuest'); if (gt) gt.hidden = !guest;
-  var ab = $('#btnAdmin'); if (ab) ab.hidden = guest;
+  var ab = $('#btnAdmin'); if (ab) ab.hidden = false;       // 訪客也能看完整資料，只是不能改
+  [['#btnAddGroup', 1], ['#btnChpw', 1], ['#rosterSave', 1]].forEach(function (p) {
+    var el = $(p[0]); if (el) el.hidden = guest;               // 新增組別／變更密碼／儲存列
+  });
   var tlab = $('#tabCounterLabel');
   if (tlab) tlab.textContent = guest ? '小幫手分配' : '領取／歸還';
   var oh = $('#dashOutHint'); if (oh) oh.hidden = guest;
+  var rh = $('#rosterHint');
+  if (rh && guest) {
+    rh.textContent = '訪客檢視：名單、申請數量、領用日期、機台狀態、操作紀錄都看得到，' +
+      '也可以列印和下載，但不能修改。行動電話不開放訪客查看。';
+  }
   var qlab = $('#page-counter .field > span');
   if (qlab) qlab.textContent = guest ? '查小幫手分配：輸入姓名、組別或編號' : '搜尋姓名、組別或小幫手編號';
 }

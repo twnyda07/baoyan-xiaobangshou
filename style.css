@@ -36,6 +36,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
 
+/* 訪客唯讀：看得到內容，但按不下去 */
+.dayb:disabled, .dev:disabled { opacity: 1; cursor: default; }
+.qtyro { font-variant-numeric: tabular-nums; font-weight: 700; padding: 0 2px; }
+
 /* ---------- 領取／歸還 狀態切換 ---------- */
 .modes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .mode {
