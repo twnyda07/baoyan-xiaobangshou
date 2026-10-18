@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018a';
+var BUILD = '20261018b';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -34,6 +34,15 @@ var loading = false;
 var adminOn = false;
 var role = 'admin';              // admin＝工作人員（可領取歸還、可進後台）／guest＝訪客，只能看
 var counterMode = '';            // 領取／歸還頁看哪一類：''＝全部、free＝手上沒機器可領、out＝待歸還、back＝已歸還
+var viewEventId = null;          // 正在看哪一場活動（null＝目前這一場）
+var adminBy = sessionStorage.getItem('xbs_adminby') || '';   // 誰進的後台，會記進紀錄
+
+/** 這個畫面現在能不能改東西：訪客不行，已關閉的活動也不行 */
+function readOnly() {
+  if (isGuest()) return true;
+  var ev = state.event;
+  return !!(ev && ev['狀態'] && ev['狀態'] !== '進行中');
+}
 function isGuest() { return role === 'guest'; }
 
 function backendUrl() {
@@ -64,7 +73,9 @@ function api(action, payload, tries) {
 function rawApi(action, payload, tries) {
   var url = backendUrl();
   if (!url) return Promise.reject(new Error('還沒設定後端網址'));
-  var body = Object.assign({ action: action, pw: pw, by: operator }, payload || {});
+  var who = (adminOn && adminBy) ? adminBy : operator;
+  var body = Object.assign({ action: action, pw: pw, by: who }, payload || {});
+  if (viewEventId && body.eventId == null) body.eventId = viewEventId;
   tries = tries == null ? 4 : tries;
 
   // 每次請求都有上限，網路卡住時不會無止境地等下去
@@ -92,6 +103,7 @@ function rawApi(action, payload, tries) {
       if (!data.ok) {
         var err = new Error(data.error || '操作失敗');
         err.code = data.code;
+        err.data = data;        // 後端附帶的細節（例如還沒歸還的人名）
         throw err;
       }
       return data;
@@ -223,6 +235,11 @@ function load() {
     .then(function (d) {
       state.raw = d;
       state.settings = d.settings || {};
+      state.events = d.events || [];
+      state.event = d.event || null;
+      state.eventId = d.eventId || null;
+      state.currentEventId = d.currentEventId || null;
+      state.canEdit = d.canEdit !== false;
       role = d.role || 'admin';
       norm();
       renderAll();
@@ -590,7 +607,7 @@ function memberRow(m, opts) {
   if (s === 'back') meta.push('還於 ' + (m.inAt || '').slice(5, 16));
   if (m.missing) meta.push('⚠ ' + m.missing);
 
-  if (isGuest()) acts = '';     // 訪客只看，不給任何操作鈕
+  if (readOnly()) acts = '';    // 唯讀（訪客或已關閉的活動）不給任何操作鈕
   var others = dupOthers(m);
   return '<div class="item is-' + s + '">' +
     '<span class="nm">' + esc(m.name) + '</span>' +
@@ -616,7 +633,7 @@ function rosterRow(m) {
     (m.phone ? '<span class="meta">' + esc(m.phone) + '</span>' : '') +
     '</div>' +
     rosterDayStrip(m) +
-    (isGuest() ? '' : '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>') +
+    (readOnly() ? '' : '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>') +
     '</div>';
 }
 
@@ -771,7 +788,7 @@ function paintSaveBar() {
   var nM = Object.keys(pending).length;
   var nG = Object.keys(pendingQty).length;
   var bar = $('#rosterSave');
-  if (bar) bar.hidden = (nM + nG) === 0;
+  if (bar) bar.hidden = readOnly() || (nM + nG) === 0;
   var empties = pendingEmpty();
   var parts = [];
   if (nM) parts.push(nM + ' 位的領用日期');
@@ -796,9 +813,9 @@ function rosterDayStrip(m) {
     (cur.length ? '' : '<span class="willdel">移除</span>') +
     allDays().map(function (d) {
       return '<button type="button" class="dayb' + (cur.indexOf(d) >= 0 ? ' on' : '') + '" data-day="' + esc(d) + '"' +
-        (isGuest() ? ' disabled' : '') + '>' + esc(d) + '</button>';
+        (readOnly() ? ' disabled' : '') + '>' + esc(d) + '</button>';
     }).join('') +
-    (isGuest() ? '' : '<button type="button" class="dayb all" data-day="__all">全</button>') +
+    (readOnly() ? '' : '<button type="button" class="dayb all" data-day="__all">全</button>') +
     '</div>';
 }
 
@@ -902,7 +919,7 @@ function renderRoster() {
       '<span class="qtybox' + (pendingQty[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id +
       '" title="這一組申請的總量' + (isGuest() ? '' : '，可以直接改') + '">' +
       '<span>申請</span>' +
-      (isGuest()
+      (readOnly()
         ? '<b class="qtyro">' + esc(String(qtyOf(g))) + '</b>'
         : '<input type="number" min="0" max="999" class="qty" data-gid="' + g.id + '" value="' + qtyOf(g) + '">') +
       '<span>組</span></span>' +
@@ -911,7 +928,7 @@ function renderRoster() {
       '<div class="grp-body">' +
       (ms.length ? ms.map(function (m) { return rosterRow(m); }).join('') : '<div class="empty">名單還沒填</div>') +
       '<div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line-soft)">' +
-      (isGuest() ? '' :
+      (readOnly() ? '' :
         '<button class="btn sm" data-act="add-member" data-gid="' + g.id + '">＋ 新增人員</button>' +
         '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>') +
       '<span class="hint" style="margin-left:auto;align-self:center">借用項目：' + esc(g.items || '—') + '</span>' +
@@ -937,18 +954,18 @@ function renderDevices() {
       '<span class="tag">清冊 ' + ds.length + ' 台</span>' +
       '<span class="tag' + (gap ? ' dup' : '') + '">各組申請共 ' + need + ' 台</span>' +
       '<span class="tag out">借出 ' + busy + '</span>' +
-      (isGuest() ? '' : '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>') +
+      (readOnly() ? '' : '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>') +
       '</div>' +
       (gap ? '<div class="note" style="margin:0 0 12px">' +
         '<b>對不上：</b>各組申請共 <b>' + need + '</b> 台，清冊只有 <b>' + ds.length + '</b> 台（' +
         (gap > 0 ? '少 ' + gap : '多 ' + (-gap)) + ' 台）。' +
-        (isGuest() ? '' : '<button class="btn sm primary" data-act="sync-dev" data-branch="' + b + '" data-need="' + need + '" style="margin-left:8px">依申請數量調成 ' + need + ' 台</button>') +
+        (readOnly() ? '' : '<button class="btn sm primary" data-act="sync-dev" data-branch="' + b + '" data-need="' + need + '" style="margin-left:8px">依申請數量調成 ' + need + ' 台</button>') +
         '</div>' : '') +
       (ds.length ? '<div class="devgrid">' + ds.map(function (d) {
         var who = holder[b + '/' + d.no];
         var st = who ? '借出' : d.status;
         return '<button type="button" class="dev s-' + st + '" data-act="dev" data-branch="' + b + '" data-no="' + esc(d.no) + '"' +
-          (isGuest() ? ' disabled' : '') + '>' +
+          (readOnly() ? ' disabled' : '') + '>' +
           '<b>' + esc(d.no) + '</b><small>' + esc(who || st) + '</small></button>';
       }).join('') + '</div>' : '<div class="empty">還沒建立機台清冊</div>') +
       '</div>';
@@ -975,7 +992,29 @@ function fillSelects() {
   });
 }
 
+/** 會寫入的那幾顆鈕：唯讀時（訪客或已關閉的活動）一律藏起來。每次重畫都要重算。 */
+function paintWriteButtons() {
+  var ro = readOnly();
+  var ag = $('#btnAddGroup');
+  if (ag) ag.hidden = ro;
+}
+
+/** 換一場活動看的時候，還沒存的改動一定要丟掉——否則會存到別場去 */
+function switchViewTo(id) {
+  var dirty = Object.keys(pending).length + Object.keys(pendingQty).length;
+  var go = function () {
+    pending = {}; pendingQty = {};
+    viewEventId = id;
+    return load();
+  };
+  if (!dirty) return go();
+  return confirmBox('還有沒存的改動',
+    '有 ' + dirty + ' 筆改動還沒儲存。換去看別場活動會把這些改動丟掉。',
+    '丟掉並切換', 'danger').then(function (yes) { return yes ? go() : null; });
+}
+
 function renderAll() {
+  renderEvents(); paintEventBanner(); paintWriteButtons();
   renderCounter(); renderDash(); renderRoster(); renderDevices(); renderLogs(); paintSaveBar();
   var dh = $('#devHint');
   if (dh) {
@@ -985,6 +1024,166 @@ function renderAll() {
   }
   $('#sysInfo').textContent = '資料更新於 ' + (state.settings.updatedAt || '—') +
     '　·　組別 ' + state.groups.length + '　·　名單 ' + state.members.length + ' 人　·　機台 ' + state.devices.length + ' 台';
+}
+
+/* ===================== 活動 ===================== */
+
+function renderEvents() {
+  var box = $('#eventList');
+  if (!box) return;
+  var evs = state.events || [];
+  box.innerHTML = evs.length ? '<div class="list">' + evs.map(function (e) {
+    var open = e['狀態'] === '進行中';
+    var viewing = state.eventId === e.id;
+    var isCur = state.currentEventId === e.id;
+    var meta = [];
+    if (e['領用日期']) meta.push('領用日期 ' + e['領用日期']);
+    if (e['建立者']) meta.push('由 ' + e['建立者'] + ' 建立於 ' + String(e['建立時間'] || '').slice(0, 16));
+    if (e['關閉者']) meta.push('由 ' + e['關閉者'] + ' 關閉於 ' + String(e['關閉時間'] || '').slice(0, 16));
+    var acts = '';
+    if (!viewing) acts += '<button class="btn sm" data-act="ev-view" data-ev="' + e.id + '">查看</button>';
+    if (!isGuest()) {
+      if (!isCur) acts += '<button class="btn sm primary" data-act="ev-current" data-ev="' + e.id + '" title="所有人下次開啟時預設看到這一場">設為目前</button>';
+      acts += open
+        ? '<button class="btn sm danger" data-act="ev-close" data-ev="' + e.id + '">關閉活動</button>'
+        : '<button class="btn sm ghost" data-act="ev-reopen" data-ev="' + e.id + '">重新開啟</button>';
+      acts += '<button class="btn sm ghost" data-act="ev-edit" data-ev="' + e.id + '" title="改名稱或領用日期">✎</button>';
+    }
+    return '<div class="item">' +
+      '<span class="nm">' + esc(e['名稱']) + '</span>' +
+      '<span class="tag ' + (open ? 'out' : 'back') + '">' + esc(e['狀態']) + '</span>' +
+      (isCur ? '<span class="tag branch">目前</span>' : '') +
+      (viewing ? '<span class="tag days">正在看</span>' : '') +
+      (meta.length ? '<span class="meta">' + esc(meta.join('　·　')) + '</span>' : '') +
+      '<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">' + acts + '</span>' +
+      '</div>';
+  }).join('') + '</div>' : '<div class="empty">還沒有活動</div>';
+
+  var nb = $('#btnNewEvent');
+  if (nb) nb.hidden = isGuest();
+}
+
+/** 看的不是「目前這一場」或那一場已關閉時，頂端給一條明顯的提示 */
+function paintEventBanner() {
+  var el = $('#eventBanner');
+  if (!el) return;
+  var ev = state.event;
+  if (!ev) { el.hidden = true; return; }
+  var closed = ev['狀態'] !== '進行中';
+  var other = state.currentEventId && state.eventId && state.currentEventId !== state.eventId;
+  if (!closed && !other) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML =
+    '<b>' + esc(ev['名稱']) + '</b>　' +
+    (closed ? '這一場已經關閉了，只能查看，不能登記領取或歸還。' : '你正在看的不是目前進行中的那一場。') +
+    (isGuest() ? '' : '　<button class="btn sm" data-act="ev-back">回到目前的活動</button>');
+}
+
+function newEventDialog() {
+  var cur = state.event ? state.event['名稱'] : '';
+  var out = unreturnedNow();
+  dialog({
+    title: '開一場新活動',
+    body:
+      (out.length
+        ? '<div class="note" style="margin:0 0 12px">' +
+          '<b>提醒：「' + esc(cur) + '」還有 ' + out.length + ' 台沒收回來。</b>' +
+          '<div style="margin-top:6px;max-height:30vh;overflow:auto">' +
+          out.slice(0, 20).map(function (m) {
+            return '<div>' + esc(m.name) + '（' + esc(m.no || '未填') + '）' + esc(m.group ? m.group.name : '') + '</div>';
+          }).join('') +
+          (out.length > 20 ? '<div>…共 ' + out.length + ' 位</div>' : '') +
+          '</div>' +
+          '<div style="margin-top:8px">還是可以先開新活動，兩邊的紀錄不會互相影響；' +
+          '但<b>舊的這一場要等機器全部收回來才關得掉</b>。</div></div>'
+        : '') +
+      '<label class="field"><span>活動名稱（之後就靠這個分辨）</span>' +
+      '<input class="box" id="evName" autocomplete="off" placeholder="例：115年彌陀佛七"></label>' +
+      '<label class="field"><span>領用日期（只填「日」，用逗號隔開）</span>' +
+      '<input class="box" id="evDays" autocomplete="off" value="' + esc(allDays().join(',')) + '"></label>' +
+      '<label class="field" style="flex-direction:row;align-items:center;gap:8px">' +
+      '<input type="checkbox" id="evCopy" checked style="width:auto"><span>把機台清冊從「' + esc(cur) + '」複製過來（狀態全部重設為可用）</span></label>' +
+      '<p class="hint" style="margin:0">組別與名單不會複製，要重新提報。建立後會自動切到新活動。</p>',
+    focus: '#evName',
+    buttons: [
+      { label: '取消', value: null },
+      {
+        label: '建立', cls: 'ok',
+        collect: function (b) {
+          var name = $('#evName', b).value.trim();
+          if (!name) { toast('請先給活動一個名稱', true); return false; }
+          return { name: name, days: $('#evDays', b).value.trim(), copyDevices: $('#evCopy', b).checked };
+        },
+      },
+    ],
+  }).then(function (r) {
+    if (!r) return;
+    return api('createEvent', r).then(function (d) {
+      pending = {}; pendingQty = {};
+      viewEventId = null;
+      toast('已建立「' + r.name + '」，機台帶過去 ' + (d.devices || 0) + ' 台' +
+        (d.unreturnedBefore ? '　·　「' + (d.fromName || '上一場') + '」還有 ' + d.unreturnedBefore + ' 台沒收回來' : ''),
+        !!d.unreturnedBefore);
+      return load().then(function () { showPage('roster'); });
+    });
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
+function editEventDialog(ev) {
+  dialog({
+    title: '修改活動 · ' + ev['名稱'],
+    body:
+      '<label class="field"><span>活動名稱</span>' +
+      '<input class="box" id="evName2" autocomplete="off" value="' + esc(ev['名稱']) + '"></label>' +
+      '<label class="field"><span>領用日期（只填「日」，用逗號隔開）</span>' +
+      '<input class="box" id="evDays2" autocomplete="off" value="' + esc(ev['領用日期'] || '') + '"></label>',
+    focus: '#evName2',
+    buttons: [
+      { label: '取消', value: null },
+      {
+        label: '儲存', cls: 'ok',
+        collect: function (b) {
+          var name = $('#evName2', b).value.trim();
+          if (!name) { toast('名稱不能空白', true); return false; }
+          return { name: name, days: $('#evDays2', b).value.trim() };
+        },
+      },
+    ],
+  }).then(function (r) {
+    if (!r) return;
+    return api('saveEvent', Object.assign({ eventId: ev.id }, r))
+      .then(function () { toast('已儲存'); return load(); });
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
+/** 這一場還有幾台在外面沒收回來 */
+function unreturnedNow() {
+  return state.members.filter(function (m) { return statusOf(m) === 'out'; });
+}
+
+function closeEventFlow(ev) {
+  confirmBox('關閉活動', '要關閉「' + ev['名稱'] + '」嗎？\n\n關閉之後這一場就只能查看，不能再登記領取或歸還。\n資料不會刪除，隨時可以切回來看，也可以重新開啟。', '關閉活動', 'danger')
+    .then(function (yes) {
+      if (!yes) return;
+      return api('closeEvent', { eventId: ev.id })
+        .then(function () { toast('「' + ev['名稱'] + '」已關閉'); return load(); })
+        .catch(function (e) {
+          if (e.code !== 'HAS_UNRETURNED') throw e;
+          // 機器沒收齊就不能關帳，列出是誰，讓現場去追
+          var names = (e.data && e.data.names) || [];
+          return dialog({
+            title: '還不能關閉 · 機器沒收齊',
+            body:
+              '<p class="hint" style="margin:0 0 10px"><b>' + esc(e.message) + '</b></p>' +
+              '<div class="note" style="margin:0 0 10px;max-height:46vh;overflow:auto">' +
+              names.map(function (n) { return '<div>' + esc(n) + '</div>'; }).join('') +
+              '</div>' +
+              '<p class="hint" style="margin:0">先去把這些收回來、在「待歸還」裡登記歸還，再回來關閉這場活動。</p>',
+            buttons: [{ label: '知道了', value: null }],
+          });
+        });
+    })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
 /* ===================== 匯出 ===================== */
@@ -1311,7 +1510,7 @@ document.addEventListener('click', function (e) {
 }, true);
 document.addEventListener('input', function (e) {
   var box = e.target.closest('input.qty');
-  if (box && !isGuest()) setQty(box.dataset.gid, box.value);
+  if (box && !readOnly()) setQty(box.dataset.gid, box.value);
 });
 document.addEventListener('keydown', function (e) {
   if (e.target.closest('input.qty') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
@@ -1320,15 +1519,43 @@ document.addEventListener('keydown', function (e) {
 document.addEventListener('click', function (e) {
   var day = e.target.closest('.daystrip .dayb');
   if (day) {
-    if (isGuest()) return;                 // 訪客唯讀：領用日期不給點
+    if (readOnly()) return;                // 唯讀：領用日期不給點
     toggleDay(day.closest('.daystrip').dataset.mid, day.dataset.day);
     return;
   }
   var b = e.target.closest('[data-act]');
   if (!b) return;
   var act = b.dataset.act;
-  // 訪客唯讀：data-act 全部都是會寫入的動作，一律擋下（伺服器端還有一道）
-  if (isGuest()) { toast('訪客帳號只能查看，不能修改', true); return; }
+
+  // 活動本身的操作：就算正在看已關閉的活動也要能按（否則再也切不回去）
+  if (act.indexOf('ev-') === 0) {
+    if (isGuest() && act !== 'ev-view' && act !== 'ev-back') { toast('訪客帳號只能查看，不能修改', true); return; }
+    var ev = (state.events || []).filter(function (x) { return x.id === b.dataset.ev; })[0];
+    if (act === 'ev-back') { switchViewTo(null).then(function (d) { if (d) toast('已回到目前的活動'); }); return; }
+    if (!ev) { toast('找不到這場活動，重新整理看看', true); return; }
+    if (act === 'ev-view') { switchViewTo(ev.id).then(function (d) { if (d) toast('正在看「' + ev['名稱'] + '」'); }); return; }
+    if (act === 'ev-current') {
+      api('switchEvent', { eventId: ev.id }).then(function () {
+        return switchViewTo(null).then(function () { toast('目前活動已改成「' + ev['名稱'] + '」'); });
+      }).catch(function (e) { toast(e.message, true); });
+      return;
+    }
+    if (act === 'ev-close') { closeEventFlow(ev); return; }
+    if (act === 'ev-reopen') {
+      api('reopenEvent', { eventId: ev.id })
+        .then(function () { toast('「' + ev['名稱'] + '」已重新開啟'); return load(); })
+        .catch(function (e) { toast(e.message, true); });
+      return;
+    }
+    if (act === 'ev-edit') { editEventDialog(ev); return; }
+    return;
+  }
+
+  // 唯讀：訪客，或正在看已關閉的活動（伺服器端還有一道）
+  if (readOnly()) {
+    toast(isGuest() ? '訪客帳號只能查看，不能修改' : '這場活動已經關閉了，只能查看', true);
+    return;
+  }
   if (act === 'out') doCheckout(byId(b.dataset.id));
   else if (act === 'in') doReturn(byId(b.dataset.id));
   else if (act === 'undo-out') doUndo(byId(b.dataset.id), 'checkout');
@@ -1378,11 +1605,53 @@ function setAdmin(on) {
 
 on('#btnAdmin', 'click', function () {
   if (adminOn) { setAdmin(false); toast(isGuest() ? '已收起' : '已離開後台'); return; }
-  setAdmin(true);
-  showPage('roster');
-  toast(isGuest() ? '完整資料：名單、機台、操作紀錄、列印下載都看得到，但不能修改'
-                  : '後台管理：可以改分組、改名單、列印');
+  if (isGuest()) {
+    setAdmin(true);
+    showPage('events');
+    toast('完整資料：活動、名單、機台、操作紀錄、列印下載都看得到，但不能修改');
+    return;
+  }
+  askAdminName().then(function (who) {
+    if (!who) return;
+    setAdmin(true);
+    showPage('events');
+    toast('後台管理 · ' + who + '　（這次進出會記在操作紀錄裡）');
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 });
+
+/** 進後台一定要留名，記進操作紀錄，事後才知道是誰動的 */
+function askAdminName() {
+  return dialog({
+    title: '請問是哪一位要進後台？',
+    body:
+      '<p class="hint" style="margin:0 0 10px">後台可以改名單、改組別、開關活動。' +
+      '留下名字之後，這次進後台以及接下來改的每一筆都會記在操作紀錄裡。關掉瀏覽器就清除。</p>' +
+      '<label class="field"><span>名字</span>' +
+      '<input class="box" id="dAdmin" autocomplete="off" value="' + esc(adminBy || operator || '') + '"></label>',
+    focus: '#dAdmin',
+    buttons: [
+      { label: '取消', value: null },
+      {
+        label: '進後台', cls: 'ok',
+        collect: function (b) {
+          var v = $('#dAdmin', b).value.trim();
+          if (!v) { toast('請留下名字', true); return false; }
+          return v;
+        },
+      },
+    ],
+  }).then(function (who) {
+    if (!who) return null;
+    adminBy = who;
+    sessionStorage.setItem('xbs_adminby', who);
+    return api('enterAdmin', { by: who }).then(function () { return who; })
+      .catch(function (e) {
+        // 記不進去也別擋住人進後台，現場要緊
+        if (window.console) console.warn('記錄進後台失敗', e);
+        return who;
+      });
+  });
+}
 
 on('#q', 'input', renderCounter);
 on('#fBranch', 'change', renderCounter);
@@ -1408,6 +1677,7 @@ window.addEventListener('beforeunload', function (e) {
 });
 on('#btnReload', 'click', function () { load().then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
 on('#btnAddGroup', 'click', function () { editGroup(null); });
+on('#btnNewEvent', 'click', newEventDialog);
 on('#btnXls', 'click', function () { exportExcel('xls'); });
 on('#btnXlsx', 'click', function () { exportExcel('xlsx'); });
 on('#btnCsv', 'click', exportCsv);
@@ -1540,9 +1810,8 @@ function applyRole() {
   var guest = isGuest();
   var gt = $('#hdGuest'); if (gt) gt.hidden = !guest;
   var ab = $('#btnAdmin'); if (ab) ab.hidden = false;       // 訪客也能看完整資料，只是不能改
-  [['#btnAddGroup', 1], ['#btnChpw', 1], ['#rosterSave', 1]].forEach(function (p) {
-    var el = $(p[0]); if (el) el.hidden = guest;               // 新增組別／變更密碼／儲存列
-  });
+  var cp = $('#btnChpw'); if (cp) cp.hidden = guest;           // 變更密碼只有工作人員能動
+  paintWriteButtons();
   var tlab = $('#tabCounterLabel');
   if (tlab) tlab.textContent = guest ? '小幫手分配' : '領取／歸還';
   var oh = $('#dashOutHint'); if (oh) oh.hidden = guest;

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>小幫手借用系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261018a">
+<link rel="stylesheet" href="style.css?v=20261018b">
 </head>
 <body>
 
@@ -46,6 +46,7 @@
   <nav class="tabs" role="tablist">
     <button role="tab" data-page="counter" aria-selected="true"><span id="tabCounterLabel">領取／歸還</span><span class="badge" id="tabOutBadge" hidden>0</span></button>
     <button role="tab" data-page="dash" aria-selected="false">總覽</button>
+    <button role="tab" data-page="events" data-admin aria-selected="false" hidden>活動</button>
     <button role="tab" data-page="roster" data-admin aria-selected="false" hidden>名單管理</button>
     <button role="tab" data-page="devices" data-admin aria-selected="false" hidden>機台清冊</button>
     <button role="tab" data-page="export" data-admin aria-selected="false" hidden>列印／下載</button>
@@ -54,6 +55,8 @@
 </header>
 
 <div class="wrap">
+
+  <div class="note" id="eventBanner" hidden style="margin-bottom:14px"></div>
 
   <!-- ---------- 領取／歸還 ---------- -->
   <section class="page on" id="page-counter">
@@ -93,6 +96,22 @@
     <h2 class="ttl">重複出現的名字</h2>
     <p class="hint" style="margin:0 0 10px">同一個名字出現在兩組以上。可能是同一個人要領兩台，也可能是不同人同名——發放前先確認。</p>
     <div id="dashDup"></div>
+  </section>
+
+  <!-- ---------- 活動 ---------- -->
+  <section class="page" id="page-events">
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <b style="font-size:1.05rem">活動</b>
+        <button class="btn sm ok" id="btnNewEvent" style="margin-left:auto">＋ 開新活動</button>
+      </div>
+      <p class="hint" id="eventsHint" style="margin:10px 0 0">
+        每一場活動各有自己的組別、名單與借還紀錄，彼此不會互相干擾。
+        活動結束後按「關閉」，那一場就只能查看不能再登記；要辦下一場就「開新活動」，
+        機台清冊會自動帶過去，組別與名單重新提報。
+      </p>
+    </div>
+    <div id="eventList"></div>
   </section>
 
   <!-- ---------- 名單管理 ---------- -->
@@ -176,7 +195,7 @@
 <div id="toast"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="config.js?v=20261018a"></script>
-<script src="app.js?v=20261018a"></script>
+<script src="config.js?v=20261018b"></script>
+<script src="app.js?v=20261018b"></script>
 </body>
 </html>
