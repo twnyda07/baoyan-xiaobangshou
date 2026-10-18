@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018c';
+var BUILD = '20261018d';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -70,17 +70,22 @@ function api(action, payload, tries) {
   });
 }
 
+/** 重送會多建一筆的動作，不自動重試 */
+var NO_RETRY = { addMember: 1, createEvent: 1 };
+
 function rawApi(action, payload, tries) {
   var url = backendUrl();
   if (!url) return Promise.reject(new Error('還沒設定後端網址'));
   var who = (adminOn && adminBy) ? adminBy : operator;
   var body = Object.assign({ action: action, pw: pw, by: who }, payload || {});
   if (viewEventId && body.eventId == null) body.eventId = viewEventId;
-  tries = tries == null ? 4 : tries;
+  // 這幾個沒有冪等保護，重送會多出一筆而且畫面顯示成功 → 寧可讓人自己按 ↻ 確認
+  tries = tries == null ? (NO_RETRY[action] ? 0 : 4) : tries;
 
   // 每次請求都有上限，網路卡住時不會無止境地等下去
   var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : null;
+  // 必須大於後端 LockService.waitLock(25000)，否則排隊中就被自己中斷、重送造成重複寫入
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 30000) : null;
 
   return fetch(url, {
     method: 'POST',
@@ -224,15 +229,20 @@ function statusOf(m) { return m.inAt ? 'back' : (m.outAt ? 'out' : 'idle'); }
 function statusLabel(s) { return { idle: '尚未領取', out: '領取中', back: '已歸還' }[s]; }
 
 var loadingPromise = null;
-function load() {
+var loadToken = 0;
+function load(fresh) {
   // 同時被呼叫時共用同一個請求。千萬不能直接回一個「成功」的空 Promise，
   // 否則呼叫端會以為載好了，畫面就卡在半路。
-  if (loadingPromise) return loadingPromise;
+  // 但 fresh=true（剛寫入過）絕不可以共用——那個請求是寫入「之前」發出的，
+  // 拿到的是舊快照，畫面會把剛領走的人顯示成還沒領。
+  if (loadingPromise && !fresh) return loadingPromise;
+  var myToken = ++loadToken;
   loading = true;
   var rb = $('#btnReload');
   if (rb) rb.disabled = true;
-  loadingPromise = api('load')
+  var p = api('load')
     .then(function (d) {
+      if (myToken !== loadToken) return d;   // 已經有更新的一次載入，這份是舊的，不要拿來畫
       state.raw = d;
       state.settings = d.settings || {};
       state.events = d.events || [];
@@ -248,12 +258,14 @@ function load() {
       return d;
     })
     .finally(function () {
+      if (myToken !== loadToken) return;
       loading = false;
       loadingPromise = null;
       var b = $('#btnReload');
       if (b) b.disabled = false;
     });
-  return loadingPromise;
+  loadingPromise = p;
+  return p;
 }
 
 /* ===================== 對話框 ===================== */
@@ -340,7 +352,10 @@ function paintOperator() {
 /* ===================== 領取／歸還 ===================== */
 function availableDevices(branch) {
   var busy = {};
-  state.members.forEach(function (m) { if (m.outAt && !m.inAt && m.no) busy[m.no] = m.name; });
+  // 三個分院的編號都從 01 起編，只能算同一個分院的人，否則善覺 01 會讓圓道 01 消失
+  state.members.forEach(function (m) {
+    if (m.outAt && !m.inAt && m.no && m.group && m.group.branch === branch) busy[m.no] = m.name;
+  });
   return state.devices.filter(function (d) { return d.branch === branch; }).map(function (d) {
     return { no: d.no, status: d.status, holder: busy[d.no] || '' };
   });
@@ -394,11 +409,12 @@ function doCheckout(m) {
           }
           throw e;
         })
-        .catch(function (e) {
-          // 連線重送時第一次其實已經成功 → 當成成功，不要嚇到現場的人
-          if (!/已經領取/.test(e.message)) throw e;
-        })
-        .then(function () { toast(m.name + '　領取 ' + no); return load(); });
+        .then(function (d) {
+          // 以後端實際寫進去的編號為準；重送造成的重複由後端判定為成功
+          var real = (d && d.member && d.member['小幫手編號']) || no;
+          toast(m.name + '　領取 ' + real + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
+          return load(true);
+        });
     });
   }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
@@ -427,10 +443,10 @@ function doReturn(m) {
     }).then(function (r) {
       if (!r) return;
       return api('return', { memberId: m.id, missing: r.missing })
-        .catch(function (e) {
-          if (!/已經歸還過了/.test(e.message)) throw e;
-        })
-        .then(function () { toast(m.name + '　已歸還'); return load(); });
+        .then(function (d) {
+          toast(m.name + '　已歸還' + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
+          return load(true);
+        });
     });
   }).catch(function (e) { toast(e.message, true); });
 }
@@ -442,7 +458,7 @@ function doUndo(m, what) {
       if (!yes) return;
       return askOperator().then(function (op) {
         if (!op) return;
-        return api('undo', { memberId: m.id, what: what }).then(function () { toast('已' + label); return load(); });
+        return api('undo', { memberId: m.id, what: what }).then(function () { toast('已' + label); return load(true); });
       });
     })
     .catch(function (e) { toast(e.message, true); });
@@ -486,7 +502,7 @@ function editMember(m) {
     if (r === '__del') {
       return confirmBox('刪除人員', '確定把「' + m.name + '」從 ' + m.group.name + ' 刪掉嗎？', '刪除', 'danger').then(function (yes) {
         if (!yes) return;
-        return api('deleteMember', { memberId: m.id }).then(function () { toast('已刪除'); return load(); });
+        return api('deleteMember', { memberId: m.id }).then(function () { toast('已刪除'); return load(true); });
       });
     }
     return api('saveMember', Object.assign({ memberId: m.id }, r))
@@ -497,7 +513,7 @@ function editMember(m) {
           return api('saveMember', Object.assign({ memberId: m.id, force: true }, r));
         });
       })
-      .then(function () { toast('已儲存'); return load(); });
+      .then(function () { toast('已儲存'); return load(true); });
   }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
@@ -525,7 +541,7 @@ function addMember(g) {
   }).then(function (r) {
     if (!r) return;
     return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days })
-      .then(function () { toast('已新增 ' + r.name); return load(); });
+      .then(function () { toast('已新增 ' + r.name); return load(true); });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -578,10 +594,10 @@ function editGroup(g) {
     if (r === '__del') {
       return confirmBox('刪除組別', '確定刪掉「' + g.name + '」嗎？底下的人員會一起刪掉。', '刪除', 'danger').then(function (yes) {
         if (!yes) return;
-        return api('deleteGroup', { groupId: g.id, force: true }).then(function () { toast('已刪除'); return load(); });
+        return api('deleteGroup', { groupId: g.id, force: true }).then(function () { toast('已刪除'); return load(true); });
       });
     }
-    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r)).then(function () { toast('已儲存'); return load(); });
+    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r)).then(function () { toast('已儲存'); return load(true); });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -915,7 +931,7 @@ function saveAllDays() {
             toast(held.join('、') + ' 手上的小幫手還沒歸還，先留在名單上', true);
           }, 2600);
         }
-        return load();
+        return load(true);
       })
       .catch(function (e) { toast(e.message, true); paintSaveBar(); })
       .finally(function () { var b = $('#btnSaveAll'); if (b) b.disabled = false; });
@@ -1041,9 +1057,14 @@ function paintWriteButtons() {
 function switchViewTo(id) {
   var dirty = Object.keys(pending).length + Object.keys(pendingQty).length;
   var go = function () {
+    var prev = viewEventId;
     pending = {}; pendingQty = {};
     viewEventId = id;
-    return load();
+    return load(true).catch(function (e) {
+      viewEventId = prev;                       // 載不起來就退回原本那一場，不能讓之後的寫入跑到別場
+      toast('切換活動失敗，還停在原來那一場：' + e.message, true);
+      throw e;
+    });
   };
   if (!dirty) return go();
   return confirmBox('還有沒存的改動',
@@ -1081,7 +1102,7 @@ function renderEvents() {
     var acts = '';
     if (!viewing) acts += '<button class="btn sm" data-act="ev-view" data-ev="' + e.id + '">查看</button>';
     if (!isGuest()) {
-      if (!isCur) acts += '<button class="btn sm primary" data-act="ev-current" data-ev="' + e.id + '" title="所有人下次開啟時預設看到這一場">設為目前</button>';
+      if (!isCur && open) acts += '<button class="btn sm primary" data-act="ev-current" data-ev="' + e.id + '" title="所有人下次開啟時預設看到這一場">設為目前</button>';
       acts += open
         ? '<button class="btn sm danger" data-act="ev-close" data-ev="' + e.id + '">關閉活動</button>'
         : '<button class="btn sm ghost" data-act="ev-reopen" data-ev="' + e.id + '">重新開啟</button>';
@@ -1162,7 +1183,7 @@ function newEventDialog() {
       toast('已建立「' + r.name + '」，機台帶過去 ' + (d.devices || 0) + ' 台' +
         (d.unreturnedBefore ? '　·　「' + (d.fromName || '上一場') + '」還有 ' + d.unreturnedBefore + ' 台沒收回來' : ''),
         !!d.unreturnedBefore);
-      return load().then(function () { showPage('roster'); });
+      return load(true).then(function () { showPage('roster'); });
     });
   }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
@@ -1190,7 +1211,7 @@ function editEventDialog(ev) {
   }).then(function (r) {
     if (!r) return;
     return api('saveEvent', Object.assign({ eventId: ev.id }, r))
-      .then(function () { toast('已儲存'); return load(); });
+      .then(function () { toast('已儲存'); return load(true); });
   }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
@@ -1204,7 +1225,7 @@ function closeEventFlow(ev) {
     .then(function (yes) {
       if (!yes) return;
       return api('closeEvent', { eventId: ev.id })
-        .then(function () { toast('「' + ev['名稱'] + '」已關閉'); return load(); })
+        .then(function () { toast('「' + ev['名稱'] + '」已關閉'); return load(true); })
         .catch(function (e) {
           if (e.code !== 'HAS_UNRETURNED') throw e;
           // 機器沒收齊就不能關帳，列出是誰，讓現場去追
@@ -1481,7 +1502,7 @@ function deviceDialog(branch, no) {
     ],
   }).then(function (r) {
     if (!r) return;
-    return api('saveDevice', Object.assign({ branch: branch, no: no }, r)).then(function () { toast('已儲存'); return load(); });
+    return api('saveDevice', Object.assign({ branch: branch, no: no }, r)).then(function () { toast('已儲存'); return load(true); });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -1501,7 +1522,7 @@ function syncDevices(branch, need) {
             return api('resetDevices', { branch: branch, count: need, force: true });
           });
         })
-        .then(function () { toast(branch + ' 機台清冊已調成 ' + need + ' 台'); return load(); });
+        .then(function () { toast(branch + ' 機台清冊已調成 ' + need + ' 台'); return load(true); });
     })
     .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
@@ -1535,7 +1556,7 @@ function resetDevices(branch) {
           return api('resetDevices', { branch: branch, count: n, force: true });
         });
       })
-      .then(function () { toast('已調整'); return load(); });
+      .then(function () { toast('已調整'); return load(true); });
   }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
@@ -1569,19 +1590,23 @@ document.addEventListener('click', function (e) {
   if (act.indexOf('ev-') === 0) {
     if (isGuest() && act !== 'ev-view' && act !== 'ev-back') { toast('訪客帳號只能查看，不能修改', true); return; }
     var ev = (state.events || []).filter(function (x) { return x.id === b.dataset.ev; })[0];
-    if (act === 'ev-back') { switchViewTo(null).then(function (d) { if (d) toast('已回到目前的活動'); }); return; }
+    if (act === 'ev-back') { switchViewTo(null).then(function (d) { if (d) toast('已回到目前的活動'); }).catch(function () {}); return; }
     if (!ev) { toast('找不到這場活動，重新整理看看', true); return; }
-    if (act === 'ev-view') { switchViewTo(ev.id).then(function (d) { if (d) toast('正在看「' + ev['名稱'] + '」'); }); return; }
+    if (act === 'ev-view') { switchViewTo(ev.id).then(function (d) { if (d) toast('正在看「' + ev['名稱'] + '」'); }).catch(function () {}); return; }
     if (act === 'ev-current') {
+      if (viewEventId == null) viewEventId = state.eventId;   // 先釘住，之後就算沒重載也不會寫到別場
       api('switchEvent', { eventId: ev.id }).then(function () {
-        return switchViewTo(null).then(function () { toast('目前活動已改成「' + ev['名稱'] + '」'); });
+        return switchViewTo(null).then(function (d) {
+          toast(d ? '目前活動已改成「' + ev['名稱'] + '」'
+                  : '目前活動已改成「' + ev['名稱'] + '」，你的畫面還停在原來那一場，按 ↻ 更新才會換過去', !d);
+        });
       }).catch(function (e) { toast(e.message, true); });
       return;
     }
     if (act === 'ev-close') { closeEventFlow(ev); return; }
     if (act === 'ev-reopen') {
       api('reopenEvent', { eventId: ev.id })
-        .then(function () { toast('「' + ev['名稱'] + '」已重新開啟'); return load(); })
+        .then(function () { toast('「' + ev['名稱'] + '」已重新開啟'); return load(true); })
         .catch(function (e) { toast(e.message, true); });
       return;
     }
@@ -1713,7 +1738,7 @@ on('#btnDiscard', 'click', function () {
 window.addEventListener('beforeunload', function (e) {
   if (pendingCount()) { e.preventDefault(); e.returnValue = ''; }
 });
-on('#btnReload', 'click', function () { load().then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
+on('#btnReload', 'click', function () { load(true).then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
 on('#btnAddGroup', 'click', function () { editGroup(null); });
 on('#btnNewEvent', 'click', newEventDialog);
 on('#btnXls', 'click', function () { exportExcel('xls'); });
@@ -1736,6 +1761,8 @@ function doLogout() {
     sessionStorage.removeItem('xbs_pw');
     sessionStorage.removeItem('xbs_opr');
     sessionStorage.removeItem('xbs_admin');
+    sessionStorage.removeItem('xbs_adminby');   // 共用手機：不要把上一個人的名字留給下一個人
+    adminBy = '';
     location.reload();
   });
 }
