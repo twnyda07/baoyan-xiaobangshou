@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018f';
+var BUILD = '20261018g';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -812,8 +812,9 @@ function paintDashMode() {
       b.classList.toggle('on', b.getAttribute('data-dash') === dashMode);
     });
   }
-  var br = $('#dashBranches'), dv = $('#dashDevices');
+  var br = $('#dashBranches'), gp = $('#dashGroups'), dv = $('#dashDevices');
   if (br) br.hidden = dashMode !== 'branch';
+  if (gp) gp.hidden = dashMode !== 'group';
   if (dv) dv.hidden = dashMode !== 'device';
 }
 
@@ -836,6 +837,49 @@ function renderDash() {
   $('#dashTotal').innerHTML = statsHtml(all, qtySum);
 
   paintDashMode();
+
+  // 看組別：回收時要能「一組一組去追」，所以未還的人名與編號直接列出來，
+  // 而且還有東西沒收回來的組排最前面。
+  var gRows = state.groups.map(function (g) {
+    var ms = membersOf(g.id);
+    var out = ms.filter(function (m) { return statusOf(m) === 'out'; });
+    var back = ms.filter(function (m) { return statusOf(m) === 'back'; }).length;
+    return { g: g, ms: ms, out: out, back: back };
+  }).sort(function (x, y) {
+    if (x.out.length !== y.out.length) return y.out.length - x.out.length;   // 還沒收齊的排前面
+    if (x.g.zone !== y.g.zone) return (x.g.zone || '') < (y.g.zone || '') ? -1 : 1;
+    return (parseInt(x.g.seq, 10) || 0) - (parseInt(y.g.seq, 10) || 0);
+  });
+  var totalOut = gRows.reduce(function (s, r) { return s + r.out.length; }, 0);
+
+  $('#dashGroups').innerHTML =
+    '<p class="hint" style="margin:0 0 10px">' +
+      (totalOut
+        ? '還有 <b>' + totalOut + '</b> 台沒收回來，分布在 <b>' +
+          gRows.filter(function (r) { return r.out.length; }).length + '</b> 組。未收齊的組排在最前面，' +
+          '底下就是要找的人跟編號——拿這份去找組長最快。'
+        : '所有組別都收齊了 🎉') +
+    '</p>' +
+    (gRows.length ? '<div class="list">' + gRows.map(function (r) {
+      var g = r.g;
+      return '<div class="item" style="align-items:flex-start">' +
+        '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<span class="nm">' + esc(g.name) + '</span>' +
+        '<span class="tag branch">' + esc(g.branch) + '</span>' +
+        (r.out.length ? '<span class="tag out">' + r.out.length + ' 台未還</span>' : '<span class="tag back">收齊</span>') +
+        '<span class="meta">組長 ' + esc(g.leader || '—') + '　·　申請 ' + g.qty + '　·　名單 ' + r.ms.length +
+        '　·　已還 ' + r.back + '</span>' +
+        '</div>' +
+        (r.out.length
+          ? '<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">' +
+            r.out.map(function (m) {
+              return '<span class="tag out">' + esc(m.name) + '　' + esc(m.no || '未填編號') + '</span>';
+            }).join('') + '</div>'
+          : '') +
+        '</div></div>';
+    }).join('') + '</div>' : '<div class="empty">還沒有組別</div>');
+
   $('#dashDevices').innerHTML = BRANCHES.map(function (b) {
     var ds = state.devices.filter(function (d) { return d.branch === b; })
       .sort(function (x, y) { return (parseInt(x.no, 10) || 0) - (parseInt(y.no, 10) || 0); });
