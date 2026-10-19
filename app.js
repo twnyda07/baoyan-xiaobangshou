@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018g';
+var BUILD = '20261018h';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -1974,7 +1974,8 @@ function backendDialog() {
     toast('已儲存後端網址');
   });
 }
-on('#btnBackend', 'click', backendDialog);
+// 設定後端網址只留在後台的「列印／下載」頁。登入畫面不給——一般人用不到，
+// 按錯只會把自己那台指到錯的網址；真的進不來有「重置這台」可用。
 on('#btnBackend2', 'click', backendDialog);
 
 /** 進不來時的萬用解法：把這台存的東西全清掉，回到出廠設定重載 */
