@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020d';
+var BUILD = '20261020g';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -1009,10 +1009,27 @@ function renderDash() {
 /* ---------- 名單管理：逐個勾選、最後一次儲存 ---------- */
 var pending = {};        // memberId -> 新的日期字串
 var pendingQty = {};     // groupId  -> 新的申請數量
+var pendingBranch = {};  // groupId  -> 新的借用分院（一次改完 30 組再按一次儲存）
 
-function pendingCount() { return Object.keys(pending).length + Object.keys(pendingQty).length; }
+function pendingCount() { return Object.keys(pending).length + Object.keys(pendingQty).length + Object.keys(pendingBranch).length; }
 
 function qtyOf(g) { return pendingQty[g.id] != null ? pendingQty[g.id] : g.qty; }
+
+/** 這一組目前的分院：有還沒存的改動就用改動後的 */
+function branchOf(g) {
+  return pendingBranch[g.id] != null ? pendingBranch[g.id] : (g.branch || '');
+}
+
+function setBranch(gid, val) {
+  var g = state.gById[gid];
+  if (!g) return;
+  var v = String(val || '');
+  if (v === (g.branch || '')) delete pendingBranch[gid];
+  else pendingBranch[gid] = v;
+  var sel = $('select.brsel[data-gid="' + gid + '"]');
+  if (sel) sel.classList.toggle('changed', pendingBranch[gid] != null);
+  paintSaveBar();
+}
 
 function setQty(gid, val) {
   var g = state.gById[gid];
@@ -1040,12 +1057,14 @@ function pendingEmpty() {
 function paintSaveBar() {
   var nM = Object.keys(pending).length;
   var nG = Object.keys(pendingQty).length;
+  var nB = Object.keys(pendingBranch).length;
   var bar = $('#rosterSave');
-  if (bar) bar.hidden = readOnly() || (nM + nG) === 0;
+  if (bar) bar.hidden = readOnly() || (nM + nG + nB) === 0;
   var empties = pendingEmpty();
   var parts = [];
   if (nM) parts.push(nM + ' 位的領用日期');
   if (nG) parts.push(nG + ' 組的申請數量');
+  if (nB) parts.push(nB + ' 組的借用分院');
   var msg = $('#rosterSaveMsg');
   if (msg) {
     msg.textContent = parts.length
@@ -1095,9 +1114,13 @@ function toggleDay(mid, day) {
 
 function saveAllDays() {
   var items = Object.keys(pending).map(function (id) { return { memberId: id, '領用日期': pending[id] }; });
-  var groupItems = Object.keys(pendingQty).map(function (gid) { return { groupId: gid, '數量': pendingQty[gid] }; });
+  // 數量與分院合併成同一筆，同一組只送一次
+  var gMap = {};
+  Object.keys(pendingQty).forEach(function (gid) { (gMap[gid] = gMap[gid] || { groupId: gid })['數量'] = pendingQty[gid]; });
+  Object.keys(pendingBranch).forEach(function (gid) { (gMap[gid] = gMap[gid] || { groupId: gid })['借用分院'] = pendingBranch[gid]; });
+  var groupItems = Object.keys(gMap).map(function (k) { return gMap[k]; });
   if (!items.length && !groupItems.length) return;
-  var n = items.length, nG = groupItems.length;
+  var n = items.length, nG = Object.keys(pendingQty).length, nB = Object.keys(pendingBranch).length;
   var empties = pendingEmpty();
 
   var ask = empties.length
@@ -1118,11 +1141,13 @@ function saveAllDays() {
       .then(function (r) {
         pending = {};
         pendingQty = {};
+        pendingBranch = {};
         var del = (r['已移除'] || []).length;
         var held = r['未歸還未移除'] || [];
         var said = [];
         if (n - del > 0) said.push((n - del) + ' 位名單');
         if (nG) said.push(nG + ' 組數量');
+        if (nB) said.push(nB + ' 組分院');
         if (del) said.push('移除 ' + del + ' 位');
         toast('已儲存' + (said.length ? '：' + said.join('、') : ''));
         if (held.length) {
@@ -1166,7 +1191,16 @@ function renderRoster() {
     var out = ms.filter(function (m) { return statusOf(m) === 'out'; }).length;
     return '<details class="grp" data-gid="' + g.id + '"><summary>' +
       '<span class="gn">' + esc(g.name) + '</span>' +
-      '<span class="tag branch">' + esc(g.branch) + '</span>' +
+      // 分院直接在這裡改，改完 30 組再按一次「儲存變更」——不用一組一組存
+      (readOnly()
+        ? '<span class="tag branch">' + esc(g.branch) + '</span>'
+        : '<select class="brsel' + (pendingBranch[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id +
+          '" title="這一組跟哪一個分院借">' +
+          '<option value=""' + (!branchOf(g) ? ' selected' : '') + '>未指定</option>' +
+          BRANCHES.map(function (b) {
+            return '<option value="' + esc(b) + '"' + (branchOf(g) === b ? ' selected' : '') + '>' + esc(b) + '</option>';
+          }).join('') +
+          '</select>') +
       '<span class="gm">' + groupMeta(g) + '</span>' +
       '<span class="gs">' +
       '<span class="qtybox' + (pendingQty[g.id] != null ? ' changed' : '') + '" data-gid="' + g.id +
@@ -1207,7 +1241,9 @@ function renderDevices() {
       '<span class="tag">清冊 ' + ds.length + ' 台</span>' +
       '<span class="tag' + (gap ? ' dup' : '') + '">各組申請共 ' + need + ' 台</span>' +
       '<span class="tag out">借出 ' + busy + '</span>' +
-      (readOnly() ? '' : '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '" style="margin-left:auto">調整台數</button>') +
+      (readOnly() ? '' :
+        '<button class="btn sm ok" data-act="add-dev" data-branch="' + b + '" style="margin-left:auto">＋ 新增機台</button>' +
+        '<button class="btn sm ghost" data-act="reset-dev" data-branch="' + b + '">調整台數</button>') +
       '</div>' +
       (gap ? '<div class="note" style="margin:0 0 12px">' +
         '<b>對不上：</b>各組申請共 <b>' + need + '</b> 台，清冊只有 <b>' + ds.length + '</b> 台（' +
@@ -1298,10 +1334,10 @@ function paintWriteButtons() {
 
 /** 換一場活動看的時候，還沒存的改動一定要丟掉——否則會存到別場去 */
 function switchViewTo(id) {
-  var dirty = Object.keys(pending).length + Object.keys(pendingQty).length;
+  var dirty = pendingCount();
   var go = function () {
     var prev = viewEventId;
-    pending = {}; pendingQty = {};
+    pending = {}; pendingQty = {}; pendingBranch = {};
     viewEventId = id;
     return load(true).catch(function (e) {
       viewEventId = prev;                       // 載不起來就退回原本那一場，不能讓之後的寫入跑到別場
@@ -1421,7 +1457,7 @@ function newEventDialog() {
   }).then(function (r) {
     if (!r) return;
     return api('createEvent', r).then(function (d) {
-      pending = {}; pendingQty = {};
+      pending = {}; pendingQty = {}; pendingBranch = {};
       viewEventId = null;
       toast('已建立「' + r.name + '」，機台帶過去 ' + (d.devices || 0) + ' 台' +
         (d.unreturnedBefore ? '　·　「' + (d.fromName || '上一場') + '」還有 ' + d.unreturnedBefore + ' 台沒收回來' : ''),
@@ -1742,21 +1778,69 @@ function deviceDialog(branch, no) {
         : '<label class="field"><span>狀態</span><select class="box" id="dvSt">' +
           sts.map(function (s) { return '<option value="' + s + '"' + (d.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
           '</select></label>') +
-      '<label class="field"><span>備註</span><input class="box" id="dvNote" autocomplete="off" value="' + esc(d.note || '') + '"></label>',
+      (holder ? '' :
+        '<label class="field"><span>機台編號</span>' +
+        '<input class="box" id="dvNo" autocomplete="off" value="' + esc(no) + '"></label>') +
+      '<label class="field"><span>備註</span><input class="box" id="dvNote" autocomplete="off" value="' + esc(d.note || '') + '"></label>' +
+      (holder ? '' : '<p class="hint" style="margin:0">這台不用了可以刪掉，清冊台數會跟著變。</p>'),
     buttons: [
       { label: '取消', value: null },
+      (holder ? null : { label: '刪除這台', cls: 'danger', value: '__del' }),
       {
         label: '儲存', cls: 'primary',
         collect: function (b) {
-          var st = $('#dvSt', b);
-          return { '狀態': st ? st.value : d.status, '備註': $('#dvNote', b).value.trim() };
+          var st = $('#dvSt', b), nn = $('#dvNo', b);
+          return { '狀態': st ? st.value : d.status, '備註': $('#dvNote', b).value.trim(),
+                   newNo: nn ? nn.value.trim() : null };
+        },
+      },
+    ].filter(Boolean),
+  }).then(function (r) {
+    if (!r) return;
+    if (r === '__del') {
+      return confirmBox('刪除機台', '要把 ' + branch + ' 的 ' + no + ' 從清冊刪掉嗎？\n清冊台數會少一台。', '刪除', 'danger')
+        .then(function (yes) {
+          if (!yes) return;
+          return api('deleteDevice', { branch: branch, no: no })
+            .then(function () { toast('已刪除 ' + branch + ' ' + no); return load(true); });
+        });
+    }
+    return api('saveDevice', Object.assign({ branch: branch, no: no }, r)).then(function () { toast('已儲存'); return load(true); });
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
+/** 手動新增機台。編號是自由文字（現場有「善覺062」這種編法），可以一次填多筆。 */
+function addDeviceDialog(branch) {
+  var now = state.devices.filter(function (d) { return d.branch === branch; }).length;
+  dialog({
+    title: '新增機台 · ' + branch,
+    body:
+      '<p class="hint" style="margin:0 0 12px">' + branch + ' 目前清冊 <b>' + now + '</b> 台。' +
+      '編號照機身上實際的編法填就好，不限兩位數。</p>' +
+      '<label class="field"><span>機台編號（可一次填多筆，用逗號或空白隔開）</span>' +
+      '<input class="box" id="adNos" autocomplete="off" placeholder="例：善覺062　或　51,52,53"></label>' +
+      '<label class="field"><span>備註（選填，套用到這次新增的每一台）</span>' +
+      '<input class="box" id="adNote" autocomplete="off" placeholder="例：臨時增機"></label>',
+    focus: '#adNos',
+    buttons: [
+      { label: '取消', value: null },
+      {
+        label: '新增', cls: 'ok',
+        collect: function (b) {
+          var v = $('#adNos', b).value.trim();
+          if (!v) { toast('請填機台編號', true); return false; }
+          return { nos: v, '備註': $('#adNote', b).value.trim() };
         },
       },
     ],
   }).then(function (r) {
     if (!r) return;
-    return api('saveDevice', Object.assign({ branch: branch, no: no }, r)).then(function () { toast('已儲存'); return load(true); });
-  }).catch(function (e) { toast(e.message, true); });
+    return api('addDevice', Object.assign({ branch: branch }, r)).then(function (d) {
+      toast(branch + ' 新增 ' + (d.added || []).length + ' 台，現有 ' + d.total + ' 台' +
+        ((d.skipped || []).length ? '（' + d.skipped.join('、') + ' 已存在，略過）' : ''));
+      return load(true);
+    });
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
 /** 依各組申請數量的加總，把某分院的機台清冊調成一樣多 */
@@ -1785,7 +1869,9 @@ function resetDevices(branch) {
   dialog({
     title: branch + ' · 調整台數',
     body:
-      '<p class="hint" style="margin:0 0 10px">目前清冊有 ' + cur + ' 台。改成 N 台之後，編號是 01 到 N，已經存在的編號狀態會保留。</p>' +
+      '<p class="hint" style="margin:0 0 10px">目前清冊有 ' + cur + ' 台。改成 N 台之後，' +
+      '這個分院的編號會重建成 <b>01 到 N</b>，原本就在 01～N 之間的編號狀態會保留。<br>' +
+      '<b>手動加的特殊編號（例如 善覺062）不在 01～N 裡，會被移除</b>——按下確定前會先列給你看。</p>' +
       '<label class="field"><span>台數</span><input class="box" id="rvN" type="number" min="0" max="500" value="' + cur + '"></label>',
     focus: '#rvN',
     buttons: [
@@ -1801,6 +1887,23 @@ function resetDevices(branch) {
     ],
   }).then(function (n) {
     if (n === null) return;
+    // 重建成 01～N 會把手動加的特殊編號清掉。先列出來讓人確認，不要靜默刪除。
+    var keepSet = {};
+    for (var k = 1; k <= n; k++) keepSet[(String(k).length < 2 ? '0' + k : String(k))] = 1;
+    var doomed = state.devices.filter(function (d) { return d.branch === branch && !keepSet[d.no]; });
+    if (doomed.length) {
+      return confirmBox('有 ' + doomed.length + ' 台會被移除',
+        '重建成 01～' + n + ' 之後，這幾台不在編號範圍內，會從清冊移除：\n\n' +
+        doomed.map(function (d) { return '· ' + d.no + (d.note ? '（' + d.note + '）' : ''); }).join('\n') +
+        '\n\n要繼續嗎？',
+        '仍要重建', 'danger')
+        .then(function (yes) { return yes ? doReset(n) : null; });
+    }
+    return doReset(n);
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+
+  function doReset(n) {
+    if (n === null) return;
     return api('resetDevices', { branch: branch, count: n })
       .catch(function (e) {
         if (e.code !== 'DEVICE_BUSY') throw e;
@@ -1809,8 +1912,9 @@ function resetDevices(branch) {
           return api('resetDevices', { branch: branch, count: n, force: true });
         });
       })
-      .then(function () { toast('已調整'); return load(true); });
-  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+      .then(function () { toast('已調整'); return load(true); })
+      .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+  }
 }
 
 /* ===================== 事件 ===================== */
@@ -1824,6 +1928,14 @@ document.addEventListener('input', function (e) {
   var box = e.target.closest('input.qty');
   if (box && !readOnly()) setQty(box.dataset.gid, box.value);
 });
+document.addEventListener('change', function (e) {
+  var sel = e.target.closest('select.brsel');
+  if (sel && !readOnly()) setBranch(sel.dataset.gid, sel.value);
+});
+// 下拉長在 <summary> 裡，不擋的話點它會順手把那一組收合起來
+document.addEventListener('click', function (e) {
+  if (e.target.closest('select.brsel')) e.stopPropagation();
+}, true);
 document.addEventListener('keydown', function (e) {
   if (e.target.closest('input.qty') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
 });
@@ -1886,6 +1998,7 @@ document.addEventListener('click', function (e) {
   else if (act === 'add-member') addMember(state.gById[b.dataset.gid]);
   else if (act === 'edit-group') editGroup(state.gById[b.dataset.gid]);
   else if (act === 'dev') deviceDialog(b.dataset.branch, b.dataset.no);
+  else if (act === 'add-dev') addDeviceDialog(b.dataset.branch);
   else if (act === 'reset-dev') resetDevices(b.dataset.branch);
   else if (act === 'sync-dev') syncDevices(b.dataset.branch, parseInt(b.dataset.need, 10));
 });
@@ -1996,10 +2109,10 @@ on('#rBranch', 'change', renderRoster);
 on('#rQ', 'input', renderRoster);
 on('#btnSaveAll', 'click', saveAllDays);
 on('#btnDiscard', 'click', function () {
-  confirmBox('放棄變更', '剛剛改的 ' + pendingCount() + ' 筆（領用日期與申請數量）都不存，確定嗎？', '放棄', 'danger')
+  confirmBox('放棄變更', '剛剛改的 ' + pendingCount() + ' 筆（領用日期、申請數量、借用分院）都不存，確定嗎？', '放棄', 'danger')
     .then(function (yes) {
       if (!yes) return;
-      pending = {}; pendingQty = {};
+      pending = {}; pendingQty = {}; pendingBranch = {};
       renderRoster(); paintSaveBar(); toast('已放棄變更');
     });
 });
@@ -2028,7 +2141,7 @@ on('#hdWho', 'click', function () { askOperator(true); });
 
 function doLogout() {
   var ask = pendingCount()
-    ? confirmBox('還有沒存的變更', '有 ' + pendingCount() + ' 位的領用日期還沒儲存，登出就會不見。\n\n確定要登出嗎？', '還是要登出', 'danger')
+    ? confirmBox('還有沒存的變更', '有 ' + pendingCount() + ' 筆變更還沒儲存，登出就會不見。\n\n確定要登出嗎？', '還是要登出', 'danger')
     : Promise.resolve(true);
   ask.then(function (yes) {
     if (!yes) return;

@@ -234,6 +234,12 @@ details.grp > summary::before { content: "▸"; color: var(--ink-3); font-size: 
 details.grp[open] > summary::before { content: "▾"; }
 details.grp > summary .gn { font-weight: 700; }
 details.grp > summary .gm { color: var(--ink-3); font-size: .83rem; }
+/* 名單管理：直接在組別標題上改借用分院，改完一次存 */
+select.brsel {
+  border: 1px solid var(--line); border-radius: 7px; background: var(--paper);
+  padding: 4px 6px; font-size: .84rem; color: var(--ink-2); min-height: 32px;
+}
+select.brsel.changed { border-color: var(--warn); background: var(--warn-soft); color: var(--ink); font-weight: 600; }
 details.grp > summary .gs { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .grp-body { border-top: 1px solid var(--line-soft); padding: 4px 0; }
 
@@ -356,6 +362,7 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   .item.rost { position: relative; padding: 10px 14px 12px; }
   .rost-l { flex: 1 1 100%; padding-right: 44px; }
   .item.rost > .btn { position: absolute; top: 8px; right: 12px; }
+  select.brsel { min-height: 40px; font-size: .9rem; padding: 6px 8px; }
   .daystrip { width: 100%; margin-left: 0; gap: 3px; }
   .dayb { flex: 1 1 0; min-width: 0; padding: 10px 0; font-size: .82rem; }
   .savebar { flex-wrap: nowrap; }
