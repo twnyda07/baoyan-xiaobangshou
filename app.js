@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261018h';
+var BUILD = '20261020a';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -165,6 +165,15 @@ function autoRefresh() {
   load(true).then(function () { window.scrollTo(0, y); }).catch(function () {});
 }
 
+/** 窄螢幕（手機直放）：頁首要省字，不然「小幫手借用」會被擠成直排 */
+function narrow() { return window.innerWidth <= 620; }
+
+/** 把頁首實際高度餵給 CSS，底下那條跟著捲動的搜尋列才貼得準（頁首高度會隨字數變） */
+function paintHeaderVar() {
+  var hd = $('header.top');
+  if (hd) document.documentElement.style.setProperty('--hdr', Math.round(hd.getBoundingClientRect().height) + 'px');
+}
+
 function startAuto() {
   if (autoTimer) return;
   autoTimer = setInterval(autoRefresh, AUTO_MS);
@@ -305,6 +314,7 @@ function load(fresh) {
       renderAll();
       var ha = $('#hdActivity');
       if (ha) ha.textContent = state.settings.activity || (window.CONFIG && window.CONFIG.subtitle) || '';
+      paintHeaderVar();   // 活動名稱長短會改變頁首高度
       return d;
     })
     .finally(function () {
@@ -395,7 +405,7 @@ function askOperator(force) {
 
 function paintOperator() {
   var el = $('#hdWho');
-  if (operator) { el.hidden = false; el.textContent = '經手：' + operator; }
+  if (operator) { el.hidden = false; el.textContent = (narrow() ? '' : '經手：') + operator; el.title = '經手：' + operator; }
   else el.hidden = true;
 }
 
@@ -675,14 +685,17 @@ function memberRow(m, opts) {
 
   if (readOnly()) acts = '';    // 唯讀（訪客或已關閉的活動）不給任何操作鈕
   var others = dupOthers(m);
+  // 文字包成一塊，按鈕才不會在窄螢幕被擠到下一行（手機上一列就從 95px 降到 ~64px）
   return '<div class="item is-' + s + '">' +
+    '<div class="it-main">' +
     '<span class="nm">' + esc(m.name) + '</span>' +
     (m.no ? '<span class="no">' + esc(m.no) + '</span>' : '') +
     (others.length ? '<span class="tag dup" title="同名也在：' + esc(others.join('、')) + '">同名 ' + (others.length + 1) + ' 組</span>' : '') +
     '<span class="tag ' + s + '">' + statusLabel(s) + '</span>' +
     '<span class="tag days' + (m.days.length === allDays().length ? '' : ' part') + '" title="領用日期：' + esc(m.days.join('、') || '未填') + '">' + esc(daysLabel(m.days)) + '</span>' +
     '<span class="meta">' + esc(meta.join('　·　')) + '</span>' +
-    '<span class="acts">' + acts + '</span>' +
+    '</div>' +
+    (acts ? '<span class="acts">' + acts + '</span>' : '') +
     '</div>';
 }
 
@@ -1811,8 +1824,8 @@ function setAdmin(on) {
   $$('nav.tabs button[data-admin]').forEach(function (b) { b.hidden = !adminOn; });
   var btn = $('#btnAdmin');
   btn.textContent = isGuest()
-    ? (adminOn ? '收起完整資料' : '完整資料')
-    : (adminOn ? '離開後台' : '後台管理');
+    ? (adminOn ? (narrow() ? '收起' : '收起完整資料') : (narrow() ? '完整' : '完整資料'))
+    : (adminOn ? (narrow() ? '離開' : '離開後台') : (narrow() ? '後台' : '後台管理'));
   btn.className = 'btn sm' + (adminOn ? ' ghost' : '');
   if (adminOn) sessionStorage.setItem('xbs_admin', '1');
   else sessionStorage.removeItem('xbs_admin');
@@ -2034,6 +2047,9 @@ function enter() {
   setAdmin(sessionStorage.getItem('xbs_admin') === '1');
   renderAll();
   paintOperator();
+  paintHeaderVar();
+  window.addEventListener('resize', function () { paintOperator(); setAdmin(adminOn); paintHeaderVar(); });
+  window.addEventListener('orientationchange', function () { setTimeout(paintHeaderVar, 300); });
   startAuto();
   if (!isGuest() && !operator) setTimeout(function () { askOperator(); }, 400);
 }

@@ -201,15 +201,10 @@ table.daytab tr:last-child td { border-bottom: none; }
 .savebar .btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
 
 /* 手機：一個人一行姓名＋一行日期，日期平分寬度好按 */
-@media (max-width: 620px) {
-  .item.rost { position: relative; padding: 10px 14px 12px; }
-  .rost-l { flex: 1 1 100%; padding-right: 44px; }
-  .item.rost > .btn { position: absolute; top: 8px; right: 12px; }
-  .daystrip { width: 100%; margin-left: 0; gap: 3px; }
-  .dayb { flex: 1 1 0; min-width: 0; padding: 10px 0; font-size: .82rem; }
-  .savebar { flex-wrap: nowrap; }
-  .savebar span { font-size: .85rem; }
-}
+
+
+/* 搜尋與狀態切換：手機上要一直看得到，往下找人才不用捲回頁首 */
+.ctlbar { margin-bottom: 12px; }
 
 /* ---------- 統計 ---------- */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
@@ -226,7 +221,8 @@ table.daytab tr:last-child td { border-bottom: none; }
 .item { background: var(--paper-2); padding: 11px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .item .nm { font-weight: 600; font-size: 1.02rem; }
 .item .meta { color: var(--ink-3); font-size: .82rem; }
-.item .acts { margin-left: auto; display: flex; gap: 6px; }
+.item .it-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.item .acts { margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
 .item .no { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); }
 .item.is-out { background: #fffcf3; }
 .item.is-back { background: #fbfdfb; }
@@ -284,6 +280,83 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
 
 /* ---------- 列印簽名表 ---------- */
 #printArea { display: none; }
+/* ═══════ 觸控裝置：手機直放、橫放、小平板都走這一套 ═══════ */
+@media (max-width: 820px) {
+  /* 搜尋與狀態切換黏在頁首底下，捲多遠都按得到 */
+  .ctlbar {
+    position: sticky; top: var(--hdr, 54px); z-index: 20;
+    background: var(--paper);
+    padding: 8px 12px 2px; margin: 0 -12px 10px;
+    box-shadow: 0 7px 10px -9px rgba(43, 38, 31, .45);
+  }
+  .ctlbar .field { margin-bottom: 8px; }
+  .ctlbar .field > span { display: none; }           /* 提示字已經寫在框裡了 */
+  .ctlbar .field input { min-height: 46px; font-size: 1rem; }
+  .ctlbar .mode { min-height: 46px; }
+
+  /* 兩個下拉並排，不要各佔一行；筆數縮到旁邊 */
+  #counterFilters { padding: 10px 12px; }
+  #counterFilters select { flex: 1 1 0; min-width: 0 !important; min-height: 46px; }
+  #counterFilters #qCount { flex: 0 0 auto; margin-left: 6px !important; font-size: .78rem; }
+
+  /* 名單列固定成兩行：第一行姓名＋編號＋狀態，第二行組別分院等細節。
+     不固定的話文字被按鈕擠窄會一直換行，列高反而變高。 */
+  /* 名單管理的列（.rost）要靠換行把日期條排到第二行，不能套 nowrap */
+  .item:not(.rost) { padding: 7px 12px; gap: 8px; flex-wrap: nowrap; }
+  .item .it-main { gap: 2px 7px; align-items: baseline; }
+  .item:not(.rost) .meta {
+    flex: 1 0 100%;                                  /* 一定自己佔第二行 */
+    font-size: .75rem; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .item .acts { gap: 5px; align-self: center; }
+
+  /* 手指按得到：44px 是最小安全值，站著單手按更需要 */
+  .item:not(.rost) .acts .btn { min-height: 44px; min-width: 54px; font-size: .92rem; padding: 6px 12px; border-radius: 9px; }
+  .item .acts .btn.ghost { min-width: 44px; padding: 6px 6px; font-size: 1rem; }
+  .btn.sm { padding: 8px 12px; font-size: .88rem; }
+  nav.tabs button { padding: 9px 11px; min-height: 44px; }
+
+  /* 對話框：按鈕要大、要分得開，現場誤觸的代價很高 */
+  dialog .dlg-f { gap: 10px; }
+  dialog .dlg-f .btn { flex: 1 1 0; min-height: 50px; font-size: 1rem; }
+  #dlg .field input, #dlg .field select, #dlg input.box, #dlg select.box { min-height: 48px; font-size: 1rem; }
+}
+
+/* ═══════ 手機直放：空間最緊，頁首與狀態鈕再壓一次 ═══════ */
+@media (max-width: 620px) {
+  /* 頁首壓扁——上面每多一塊，看得到的人就少一個 */
+  .top-in { padding: 7px 12px; gap: 8px; flex-wrap: wrap; }
+  /* min-width 是保險：沒有它，右邊一擠「小幫手借用」就會被壓成直排五行 */
+  .brand { font-size: .97rem; flex: 1 1 auto; min-width: 92px; white-space: nowrap; }
+  .brand small { font-size: .7em; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .top-right { gap: 6px; flex: 0 1 auto; margin-left: auto; }
+  .top-right .btn { padding: 8px 9px; font-size: .84rem; }
+  .top-right .lbl { display: none; }                 /* 「↻ 更新」在手機上只留 ↻ */
+  #hdWho { max-width: 22vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wrap { padding-left: 12px; padding-right: 12px; }
+
+  .ctlbar .modes { gap: 6px; margin-bottom: 8px; flex-wrap: nowrap; }
+  .ctlbar .mode {
+    flex: 1 1 0; min-width: 0; padding: 7px 2px; font-size: .74rem;
+    display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  }
+  .ctlbar .mode b { display: block; font-size: 1.12rem; line-height: 1.1; }
+
+  .item .nm { font-size: 1rem; }
+  .item .tag { padding: 2px 7px; font-size: .72rem; }
+  nav.tabs { gap: 4px; }
+  nav.tabs button { font-size: .9rem; }
+
+  .item.rost { position: relative; padding: 10px 14px 12px; }
+  .rost-l { flex: 1 1 100%; padding-right: 44px; }
+  .item.rost > .btn { position: absolute; top: 8px; right: 12px; }
+  .daystrip { width: 100%; margin-left: 0; gap: 3px; }
+  .dayb { flex: 1 1 0; min-width: 0; padding: 10px 0; font-size: .82rem; }
+  .savebar { flex-wrap: nowrap; }
+  .savebar span { font-size: .85rem; }
+}
+
 @media print {
   @page { size: A4; margin: 12mm; }
   body { background: #fff; }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>小幫手借用系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261018h">
+<link rel="stylesheet" href="style.css?v=20261020a">
 </head>
 <body>
 
@@ -37,7 +37,7 @@
     <div class="top-right">
       <span class="tag" id="hdWho" hidden></span>
       <span class="tag guest" id="hdGuest" hidden>訪客檢視</span>
-      <button class="btn sm ghost" id="btnReload" title="重新載入最新資料">↻ 更新</button>
+      <button class="btn sm ghost" id="btnReload" title="重新載入最新資料">↻<span class="lbl"> 更新</span></button>
       <button class="btn sm" id="btnAdmin">後台管理</button>
       <button class="btn sm ghost" id="btnLogoutTop" title="登出">登出</button>
     </div>
@@ -59,7 +59,7 @@
 
   <!-- ---------- 領取／歸還 ---------- -->
   <section class="page on" id="page-counter">
-    <div class="card">
+    <div class="ctlbar" id="counterCtl">
       <div class="modes" id="cMode">
         <button type="button" class="mode on" data-mode="" title="名單上全部的人">全部 <b></b></button>
         <button type="button" class="mode" data-mode="free" title="手上沒有機器，現在可以發給他（含還沒領過的、和已經還回來的）">可領取 <b></b></button>
@@ -70,6 +70,8 @@
         <span>搜尋姓名、組別或小幫手編號</span>
         <input class="box" id="q" type="search" placeholder="輸入姓名、組別或編號" autocomplete="off">
       </label>
+    </div>
+    <div class="card" id="counterFilters">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select class="box" id="fBranch" style="width:auto;min-width:120px">
           <option value="">全部分院</option>
@@ -207,7 +209,7 @@
 <div id="toast"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="config.js?v=20261018h"></script>
-<script src="app.js?v=20261018h"></script>
+<script src="config.js?v=20261020a"></script>
+<script src="app.js?v=20261020a"></script>
 </body>
 </html>
