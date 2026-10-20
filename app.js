@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020p';
+var BUILD = '20261021a';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -682,7 +682,11 @@ function addMember(g) {
     return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days })
       .then(function (d) {
         toast('已新增 ' + r.name + (d && d.repeat ? '（這筆剛才已經加過了）' : ''));
-        refreshSoon();
+        // 要立刻重載，不能只排 refreshSoon。新增的人在本機完全不存在，
+        // 排程期間櫃台既搜不到他也按不到「領取」，執事會以為沒存成功而重按，
+        // 而 refreshSoon 每次都重新計時，愈重按愈晚出現。
+        // 新增人員是一天幾次的動作，多一次往返不影響請求量（跟 saveMember 一致）。
+        return load(true);
       });
   }).catch(function (e) { toast(e.message, true); });
 }
@@ -743,10 +747,10 @@ function editGroup(g) {
     return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r))
       .then(function (d) {
         toast(isNew ? '已新增「' + (d.group && d.group['組別']) + '」' : '已儲存');
-        refreshSoon();          // 背景同步，不讓人等
+        return load(true);      // 新增的組若不立刻出現，人會以為沒存成功而重按
       })
       .catch(function (e) {
-        if (e.code === 'DUP_GROUP') { toast(e.message + '（沒有重複建立）'); refreshSoon(); return; }
+        if (e.code === 'DUP_GROUP') { toast(e.message + '（沒有重複建立）'); return load(true); }
         throw e;
       });
   }).catch(function (e) { toast(e.message, true); });
@@ -2003,10 +2007,26 @@ function addDeviceDialog(branch) {
 
 /** 依各組申請數量的加總，把某分院的機台清冊調成一樣多 */
 function syncDevices(branch, need) {
-  confirmBox(branch + ' · 調整機台清冊',
-    '把 ' + branch + ' 的機台清冊調成 ' + need + ' 台（＝該分院各組申請數量的加總）。\n\n' +
-    '已經存在的編號與狀態會保留，只是補上或拿掉後面的編號。',
-    '調成 ' + need + ' 台', 'primary')
+  // 後端 resetDevices 是把這個分院重建成 01～N，不在這個範圍的編號會整列消失。
+  // 現場有「善覺062」這種手動加的編法，所以跟「調整台數」那條路一樣，先列出來讓人看過再決定。
+  // 原本這裡寫的是「已經存在的編號與狀態會保留」，那句話是反的，會讓人在不知情下刪掉在用的機台。
+  var keepSet = {};
+  for (var k = 1; k <= need; k++) keepSet[(String(k).length < 2 ? '0' + k : String(k))] = 1;
+  var doomed = state.devices.filter(function (d) { return d.branch === branch && !keepSet[d.no]; });
+  var ask = doomed.length
+    ? confirmBox('有 ' + doomed.length + ' 台會被移除',
+        '把 ' + branch + ' 的機台清冊重建成 01～' + need + ' 台（＝該分院各組申請數量的加總）。\n\n' +
+        '這幾台不在編號範圍內，會從清冊移除：\n\n' +
+        doomed.map(function (d) {
+          return '· ' + d.no + (d.status === '借出' ? '（借出中）' : '') + (d.note ? '（' + d.note + '）' : '');
+        }).join('\n') +
+        '\n\n要繼續嗎？',
+        '仍要重建', 'danger')
+    : confirmBox(branch + ' · 調整機台清冊',
+        '把 ' + branch + ' 的機台清冊重建成 01～' + need + ' 台（＝該分院各組申請數量的加總）。\n\n' +
+        '在這個範圍內的既有編號，狀態與備註都會保留。',
+        '調成 ' + need + ' 台', 'primary');
+  ask
     .then(function (yes) {
       if (!yes) return;
       return api('resetDevices', { branch: branch, count: need })
