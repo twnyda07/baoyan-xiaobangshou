@@ -301,10 +301,11 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
 
   /* 名單列固定成兩行：第一行姓名＋編號＋狀態，第二行組別分院等細節。
      不固定的話文字被按鈕擠窄會一直換行，列高反而變高。 */
-  /* 名單管理的列（.rost）要靠換行把日期條排到第二行，不能套 nowrap */
-  .item:not(.rost) { padding: 7px 12px; gap: 8px; flex-wrap: nowrap; }
+  /* 只套在 .has-main（memberRow）那種列。其餘的列（活動頁、操作紀錄、
+     重複人名、看組別、名單管理）結構不同，套下去按鈕會被推出容器外。 */
+  .item.has-main { padding: 7px 12px; gap: 8px; flex-wrap: nowrap; }
   .item .it-main { gap: 2px 7px; align-items: baseline; }
-  .item:not(.rost) .meta {
+  .item.has-main .meta {
     flex: 1 0 100%;                                  /* 一定自己佔第二行 */
     font-size: .75rem; line-height: 1.35;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -312,7 +313,11 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   .item .acts { gap: 5px; align-self: center; }
 
   /* 手指按得到：44px 是最小安全值，站著單手按更需要 */
-  .item:not(.rost) .acts .btn { min-height: 44px; min-width: 54px; font-size: .92rem; padding: 6px 12px; border-radius: 9px; }
+  .item .acts .btn { min-height: 44px; min-width: 54px; font-size: .92rem; padding: 6px 12px; border-radius: 9px; }
+  .item.rost > .btn { min-height: 40px; min-width: 40px; }
+  /* 其餘種類的列在窄螢幕要能換行，按鈕才不會被擠出去 */
+  .item:not(.has-main):not(.rost) { flex-wrap: wrap; row-gap: 8px; }
+  .item:not(.has-main) .acts, .item:not(.has-main) > span:last-child { margin-left: auto; }
   .item .acts .btn.ghost { min-width: 44px; padding: 6px 6px; font-size: 1rem; }
   .btn.sm { padding: 8px 12px; font-size: .88rem; }
   nav.tabs button { padding: 9px 11px; min-height: 44px; }

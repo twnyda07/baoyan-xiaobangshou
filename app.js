@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020b';
+var BUILD = '20261020d';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -48,6 +48,19 @@ function isGuest() { return role === 'guest'; }
 
 function backendUrl() {
   return (localStorage.getItem('xbs_backend') || (window.CONFIG && window.CONFIG.backend) || '').trim();
+}
+
+/** 不會自己消失的提示。寫入在路上時用，等結果出來再被蓋掉。 */
+function toastWait(msg) {
+  var t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show';
+  clearTimeout(toast._t);
+}
+function hideToast() {
+  var t = $('#toast');
+  if (t) t.className = '';
+  clearTimeout(toast._t);
 }
 
 function toast(msg, bad) {
@@ -304,6 +317,8 @@ var loadingPromise = null;
 var loadToken = 0;
 var logsLoaded = false;      // 操作紀錄改成點進分頁才載（那張表會一路長大）
 var logsLoading = false;
+var logsEventId = null;      // 手上這份紀錄是哪一場活動的——切了活動就要作廢
+var writing = false;         // 有一筆領取／歸還還在路上。現場網路慢時擋掉連點
 function load(fresh) {
   // 同時被呼叫時共用同一個請求。千萬不能直接回一個「成功」的空 Promise，
   // 否則呼叫端會以為載好了，畫面就卡在半路。
@@ -324,6 +339,8 @@ function load(fresh) {
       state.eventId = d.eventId || null;
       state.currentEventId = d.currentEventId || null;
       state.canEdit = d.canEdit !== false;
+      // 紀錄是每場活動各自的。換了一場就把手上這份作廢，免得顯示上一場的紀錄。
+      if (logsEventId !== state.eventId) { logsLoaded = false; logsEventId = null; state.logs = []; }
       role = d.role || 'admin';
       norm();
       renderAll();
@@ -474,6 +491,8 @@ function doCheckout(m) {
       ],
     }).then(function (no) {
       if (!no) return;
+      writing = true;
+      toastWait(m.name + '　登記領取中…');
       return api('checkout', { memberId: m.id, deviceNo: no })
         .catch(function (e) {
           if (e.code === 'DEVICE_BUSY') {
@@ -489,9 +508,13 @@ function doCheckout(m) {
           var real = (d && d.member && d.member['小幫手編號']) || no;
           toast(m.name + '　領取 ' + real + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
           return load(true);
-        });
+        })
+        .finally(function () { writing = false; });
     });
-  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+  }).catch(function (e) {
+    writing = false;
+    if (e && e.message !== '已取消') toast(e.message, true); else hideToast();
+  });
 }
 
 function doReturn(m) {
@@ -517,11 +540,14 @@ function doReturn(m) {
       ],
     }).then(function (r) {
       if (!r) return;
+      writing = true;
+      toastWait(m.name + '　登記歸還中…');
       return api('return', { memberId: m.id, missing: r.missing })
         .then(function (d) {
           toast(m.name + '　已歸還' + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
           return load(true);
-        });
+        })
+        .finally(function () { writing = false; });
     });
   }).catch(function (e) { toast(e.message, true); });
 }
@@ -533,7 +559,11 @@ function doUndo(m, what) {
       if (!yes) return;
       return askOperator().then(function (op) {
         if (!op) return;
-        return api('undo', { memberId: m.id, what: what }).then(function () { toast('已' + label); return load(true); });
+        writing = true;
+        toastWait(label + '中…');
+        return api('undo', { memberId: m.id, what: what })
+          .then(function () { toast('已' + label); return load(true); })
+          .finally(function () { writing = false; });
       });
     })
     .catch(function (e) { toast(e.message, true); });
@@ -701,7 +731,10 @@ function memberRow(m, opts) {
   if (readOnly()) acts = '';    // 唯讀（訪客或已關閉的活動）不給任何操作鈕
   var others = dupOthers(m);
   // 文字包成一塊，按鈕才不會在窄螢幕被擠到下一行（手機上一列就從 95px 降到 ~64px）
-  return '<div class="item is-' + s + '">' +
+  // has-main＝這一列的文字包在 .it-main 裡。手機版的 nowrap 與「meta 自己佔一行」
+  // 只能套用在這種列；活動頁、操作紀錄、重複人名那幾種列沒有 .it-main，
+  // 套下去按鈕會被推出容器外（.list 是 overflow:hidden，連捲都捲不到）。
+  return '<div class="item has-main is-' + s + '">' +
     '<div class="it-main">' +
     '<span class="nm">' + esc(m.name) + '</span>' +
     (m.no ? '<span class="no">' + esc(m.no) + '</span>' : '') +
@@ -1206,6 +1239,7 @@ function ensureLogs(force) {
                  name: l['姓名'], no: l['編號'], detail: l['內容'], by: l['經手'] };
       });
       logsLoaded = true;
+      logsEventId = state.eventId;
     })
     .catch(function (e) { toast('操作紀錄載入失敗：' + e.message, true); })
     .finally(function () { logsLoading = false; renderLogs(); });
@@ -1520,6 +1554,16 @@ function download(blob, name) {
 }
 
 function exportExcel(kind) {
+  // 紀錄改成延後載入之後，沒進過「操作紀錄」分頁就匯出，那張工作表會是空的。
+  // 匯出前先確保拿到，不然是靜默少一份資料。
+  if (!logsLoaded) {
+    toast('正在取得操作紀錄…');
+    return ensureLogs().then(function () { doExportExcel(kind); });
+  }
+  doExportExcel(kind);
+}
+
+function doExportExcel(kind) {
   try {
     var wb = buildWorkbook();
     var base = '小幫手借用表_' + stamp();
@@ -1820,6 +1864,12 @@ document.addEventListener('click', function (e) {
       return;
     }
     if (act === 'ev-edit') { editEventDialog(ev); return; }
+    return;
+  }
+
+  // 上一筆還在路上就別再按。現場網路慢時最容易連點，而連點只會讓後端更塞。
+  if (writing && (act === 'out' || act === 'in' || act === 'undo-out' || act === 'undo-in')) {
+    toast('上一筆還在處理中，等一下再按', true);
     return;
   }
 
