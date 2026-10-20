@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020n';
+var BUILD = '20261020p';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -184,7 +184,7 @@ function canAutoRefresh() {
   if (loading) return false;                               // 已經在載了
   var dlg = $('#dlg');
   if (dlg && dlg.open) return false;                       // 正在對話框裡做事
-  if (Object.keys(pending).length || Object.keys(pendingQty).length) return false;  // 有沒存的改動
+  if (pendingCount()) return false;                        // 有沒存的改動（含今天加的分院下拉）
   if (document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return false;
   if (Date.now() - lastTouch < IDLE_MS) return false;      // 剛剛還在操作
   return true;
@@ -1503,6 +1503,8 @@ function refreshSoon(ms) {
   refreshTimer = setTimeout(function () {
     refreshTimer = null;
     if (writing) { refreshSoon(8000); return; }   // 還在寫就別插隊
+    var dlg = $('#dlg');
+    if (dlg && dlg.open) { refreshSoon(8000); return; }   // 人正在對話框裡做事，重建 state 會讓他按下去的那一筆打在舊物件上
     load(true).catch(function () {});
   }, ms == null ? 20000 : ms);
 }
@@ -2177,6 +2179,15 @@ var DASH_FRESH_MS = 10000;
 function refreshForDash() {
   if ($('#gate')) return;                                  // 還沒登入
   if (loading) return;                                     // 已經在載了
+  // 下面這三道跟 canAutoRefresh／refreshSoon 是同一套規矩：載入會整個重建 state 並重畫，
+  // 在「寫入還在路上」或「人正在對話框裡做事」的時候插隊，會把剛登記好的那一筆從畫面上洗掉——
+  // 而且還蓋上一個剛剛的「資料時間」，等於用新時間替錯的數字背書，比不更新更糟。
+  // 擋掉就好，不用補排：寫入完成本來就會排 refreshSoon，再不然 75 秒的自動更新會接手，
+  // 人也可以再點一次「總覽」。資料時間停在舊的，本來就是看得出來的。
+  if (writing) return;                                     // 有一筆領取／歸還還在路上
+  var dlg = $('#dlg');
+  if (dlg && dlg.open) return;                             // 正在對話框裡做事
+  if (pendingCount()) return;                              // 名單管理有沒存的改動
   if (Date.now() - lastLoadAt < DASH_FRESH_MS) return;     // 剛載過，不用再打
   load(true).catch(function () {});                        // 失敗就維持現在的畫面，資料時間會停在舊的，看得出來
 }
