@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020i';
+var BUILD = '20261020j';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -838,6 +838,11 @@ function counterEmptyMsg(n) {
  * 預設收合，只看得到組別標題；一搜尋或一篩狀態就自動展開，才找得到人。
  */
 function counterGrouped(rows, expand) {
+  // 同樣要記住展開狀態，不然每 75 秒自動更新一次就全部收起來
+  var wasOpen = {};
+  [].forEach.call(document.querySelectorAll('#counterList details.grp[open]'), function (d) {
+    if (d.dataset.gid) wasOpen[d.dataset.gid] = 1;
+  });
   var byG = {};
   rows.forEach(function (m) { (byG[m.groupId] = byG[m.groupId] || []).push(m); });
   var gs = state.groups.filter(function (g) { return byG[g.id] && byG[g.id].length; })
@@ -849,7 +854,7 @@ function counterGrouped(rows, expand) {
     var ms = byG[g.id];
     var out = ms.filter(function (m) { return statusOf(m) === 'out'; }).length;
     var back = ms.filter(function (m) { return statusOf(m) === 'back'; }).length;
-    return '<details class="grp"' + (expand ? ' open' : '') + '><summary>' +
+    return '<details class="grp" data-gid="' + g.id + '"' + (expand || wasOpen[g.id] ? ' open' : '') + '><summary>' +
       '<span class="gn">' + esc(g.name) + '</span>' +
       '<span class="tag branch">' + esc(g.branch) + '</span>' +
       '<span class="gm">' + groupMeta(g) + '</span>' +
@@ -1258,6 +1263,11 @@ function groupMeta(g) {
 }
 
 function renderRoster() {
+  // 重畫會把 <details> 全部收合，正在編輯的人就整個跳掉了。先記下哪幾組是展開的。
+  var wasOpen = {};
+  [].forEach.call(document.querySelectorAll('#rosterList details.grp[open]'), function (d) {
+    if (d.dataset.gid) wasOpen[d.dataset.gid] = 1;
+  });
   var fb = $('#rBranch').value, q = $('#rQ').value.trim().toLowerCase();
   var groups = state.groups.filter(function (g) {
     if (fb && g.branch !== fb) return false;
@@ -1305,6 +1315,11 @@ function renderRoster() {
       '<span class="hint" style="margin-left:auto;align-self:center">借用項目：' + esc(g.items || '—') + '</span>' +
       '</div></div></details>';
   }).join('') : '<div class="empty">沒有符合的組別</div>';
+
+  // 把剛才展開的組還原回去
+  [].forEach.call(document.querySelectorAll('#rosterList details.grp'), function (d) {
+    if (wasOpen[d.dataset.gid]) d.open = true;
+  });
 }
 
 function renderDevices() {
