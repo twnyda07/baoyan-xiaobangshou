@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020j';
+var BUILD = '20261020k';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -90,7 +90,12 @@ function api(action, payload, tries) {
  * 這時候重送就會建出第二筆（實際發生過：同一個「事務組」被建了三次）。
  * 寧可讓人自己按 ↻ 確認，也不要默默多寫一筆。
  */
-var NO_RETRY = { addMember: 1, createEvent: 1, addDevice: 1 };
+/**
+ * 現在每個寫入在後端都做成「重送也不會壞」了（同名／同一台／已刪除都會被辨識成
+ * 重複請求並回成功），所以全部開放重送。Google 每三次就有一次回中繼頁，
+ * 不重送的話使用者反而會自己按第二次，那更危險。
+ */
+var NO_RETRY = {};
 /** 唯讀動作：失敗訊息可以直接叫人重按；寫入就不行（可能已經寫進去了） */
 var READ_ONLY_ACTIONS = { load: 1, ping: 1, loadLogs: 1 };
 
@@ -672,8 +677,11 @@ function addMember(g) {
     ],
   }).then(function (r) {
     if (!r) return;
-    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days }, 0)
-      .then(function () { toast('已新增 ' + r.name); refreshSoon(); });
+    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days })
+      .then(function (d) {
+        toast('已新增 ' + r.name + (d && d.repeat ? '（這筆剛才已經加過了）' : ''));
+        refreshSoon();
+      });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -730,13 +738,13 @@ function editGroup(g) {
       });
     }
     // 新增組別不自動重送（重送會建出重複的組）；改既有的組是冪等的，維持預設重試
-    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r), isNew ? 0 : undefined)
+    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r))
       .then(function (d) {
         toast(isNew ? '已新增「' + (d.group && d.group['組別']) + '」' : '已儲存');
         refreshSoon();          // 背景同步，不讓人等
       })
       .catch(function (e) {
-        if (e.code === 'DUP_GROUP') { toast(e.message + '，沒有重複建立', true); return load(true); }
+        if (e.code === 'DUP_GROUP') { toast(e.message + '（沒有重複建立）'); refreshSoon(); return; }
         throw e;
       });
   }).catch(function (e) { toast(e.message, true); });
