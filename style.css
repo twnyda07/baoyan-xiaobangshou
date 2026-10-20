@@ -94,6 +94,8 @@ section.page.on { display: block; }
 h2.ttl { font-size: 1.15rem; margin: 22px 0 10px; letter-spacing: .03em; }
 h2.ttl:first-child { margin-top: 4px; }
 .hint { color: var(--ink-3); font-size: .86rem; margin: 6px 0 0; }
+.dash-at { margin: 0 0 10px; }   /* 總覽最上面那行「資料時間」 */
+.dash-at + h2.ttl { margin-top: 4px; }   /* 「全場」前面插了資料時間，不再是 :first-child，間距要補回來 */
 
 /* ---------- 元件 ---------- */
 .card {

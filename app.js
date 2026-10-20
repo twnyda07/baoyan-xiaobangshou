@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020m';
+var BUILD = '20261020n';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -31,6 +31,7 @@ var state = { settings: {}, groups: [], members: [], devices: [], logs: [] };
 var pw = '';
 var operator = '';
 var loading = false;
+var lastLoadAt = 0;        // 上一次「成功」載入的時間。載入失敗不更新，總覽上的資料時間就會停住，一眼看得出沒更新
 var adminOn = false;
 var role = 'admin';              // admin＝工作人員（可領取歸還、可進後台）／guest＝訪客，只能看
 var dashMode = 'branch';         // 總覽看哪一種：branch＝看分院、device＝看機台
@@ -348,6 +349,7 @@ function load(fresh) {
   var p = api('load')
     .then(function (d) {
       if (myToken !== loadToken) return d;   // 已經有更新的一次載入，這份是舊的，不要拿來畫
+      lastLoadAt = Date.now();   // 要在 renderAll 之前，總覽那行「資料時間」才會是這一次的
       state.raw = d;
       state.settings = d.settings || {};
       state.events = d.events || [];
@@ -929,6 +931,17 @@ function paintDashMode() {
 }
 
 function renderDash() {
+  // 這一頁的數字有多新，要讓人一眼看到。載入失敗時這個時間會停住，就知道畫面不能信
+  var at = $('#dashAt');
+  if (at) {
+    if (!lastLoadAt) { at.textContent = ''; }
+    else {
+      var t = new Date(lastLoadAt), z = function (x) { return x < 10 ? '0' + x : '' + x; };
+      at.textContent = '資料時間 ' + z(t.getHours()) + ':' + z(t.getMinutes()) + ':' + z(t.getSeconds()) +
+                       '　·　再點「總覽」重抓';
+    }
+  }
+
   var all = state.members;
   var cnt = function (arr, s) { return arr.filter(function (m) { return statusOf(m) === s; }).length; };
   var qtySum = state.groups.reduce(function (a, g) { return a + g.qty; }, 0);
@@ -2153,8 +2166,24 @@ document.addEventListener('change', function (e) {
   if (e.target.id === 'dMiss') $('#dMissWrap').hidden = e.target.value !== '__other';
 });
 
+/**
+ * 切到總覽就把最新的抓回來。
+ * 總覽是大家用來看「現在還剩幾台、誰還沒還」的那一頁，看到舊數字最危險——
+ * 兩個人會對著不同的真相發機台。75 秒的自動更新碰到有人在捲動時會整輪跳過，
+ * 所以這裡用「點分頁」當成明確的重抓時機（已經停在總覽時再點一次也會重抓）。
+ * 10 秒內剛載過就不重打，連點不會變成連發請求。
+ */
+var DASH_FRESH_MS = 10000;
+function refreshForDash() {
+  if ($('#gate')) return;                                  // 還沒登入
+  if (loading) return;                                     // 已經在載了
+  if (Date.now() - lastLoadAt < DASH_FRESH_MS) return;     // 剛載過，不用再打
+  load(true).catch(function () {});                        // 失敗就維持現在的畫面，資料時間會停在舊的，看得出來
+}
+
 function showPage(name) {
   if (name === 'logs') ensureLogs();
+  if (name === 'dash') refreshForDash();
   $$('nav.tabs button').forEach(function (x) { x.setAttribute('aria-selected', x.dataset.page === name); });
   $$('section.page').forEach(function (p) { p.classList.toggle('on', p.id === 'page-' + name); });
   window.scrollTo(0, 0);
