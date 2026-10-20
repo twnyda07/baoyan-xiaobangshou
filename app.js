@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020a';
+var BUILD = '20261020b';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -140,7 +140,8 @@ function rawApi(action, payload, tries) {
  * 每支手機的畫面幾分鐘後就各自過期，兩個人會對著不同的真相操作。
  * 但也不能說更新就更新——正在打字、正在看對話框、有沒存的改動時都要讓開。
  */
-var AUTO_MS = 30000;          // 每 30 秒看一次
+var AUTO_MS = 75000;          // 每 75 秒看一次。太勤會被 Google 前端節流，反而整批變慢
+var autoFails = 0;            // 連續失敗就拉長間隔，不要雪上加霜
 var IDLE_MS = 8000;           // 剛碰過畫面的 8 秒內不要動他
 var lastTouch = 0;
 var autoTimer = null;
@@ -159,10 +160,19 @@ function canAutoRefresh() {
   return true;
 }
 
+var autoSkip = 0;
 function autoRefresh() {
   if (!canAutoRefresh()) return;
+  // 連續失敗就隔幾輪才試一次，別在後端已經喘不過氣時雪上加霜
+  if (autoFails > 0) {
+    autoSkip++;
+    if (autoSkip < Math.min(autoFails + 1, 5)) return;
+    autoSkip = 0;
+  }
   var y = window.scrollY;                                  // 重畫之後把捲動位置放回去，不要讓人跟丟
-  load(true).then(function () { window.scrollTo(0, y); }).catch(function () {});
+  load(true)
+    .then(function () { autoFails = 0; window.scrollTo(0, y); })
+    .catch(function () { autoFails++; });
 }
 
 /** 窄螢幕（手機直放）：頁首要省字，不然「小幫手借用」會被擠成直排 */
@@ -210,9 +220,12 @@ function norm() {
     return { branch: d['分院'], no: d['編號'], status: d['狀態'] || '可用', memberId: d['借用成員id'], note: d['備註'] };
   });
 
-  state.logs = (state.raw.logs || []).map(function (l) {
-    return { at: l['時間'], act: l['動作'], branch: l['分院'], group: l['組別'], name: l['姓名'], no: l['編號'], detail: l['內容'], by: l['經手'] };
-  });
+  // 紀錄不再跟著 load 回來（那張表會一路長大）。已經載過的就留著，不要被空陣列洗掉。
+  if ((state.raw.logs || []).length || !logsLoaded) {
+    state.logs = (state.raw.logs || []).map(function (l) {
+      return { at: l['時間'], act: l['動作'], branch: l['分院'], group: l['組別'], name: l['姓名'], no: l['編號'], detail: l['內容'], by: l['經手'] };
+    });
+  }
 
   state.gById = {};
   state.groups.forEach(function (g) { state.gById[g.id] = g; });
@@ -289,6 +302,8 @@ function statusLabel(s) { return { idle: '尚未領取', out: '領取中', back:
 
 var loadingPromise = null;
 var loadToken = 0;
+var logsLoaded = false;      // 操作紀錄改成點進分頁才載（那張表會一路長大）
+var logsLoading = false;
 function load(fresh) {
   // 同時被呼叫時共用同一個請求。千萬不能直接回一個「成功」的空 Promise，
   // 否則呼叫端會以為載好了，畫面就卡在半路。
@@ -1177,7 +1192,30 @@ function renderDevices() {
   }).join('');
 }
 
+/** 操作紀錄：點進分頁才去拿，拿過就不再重拿（按 ↻ 更新會重拿） */
+function ensureLogs(force) {
+  if (logsLoading) return Promise.resolve();
+  if (logsLoaded && !force) return Promise.resolve();
+  logsLoading = true;
+  renderLogs();
+  return api('loadLogs', { n: 300 })
+    .then(function (d) {
+      state.raw.logs = d.logs || [];
+      state.logs = (d.logs || []).map(function (l) {
+        return { at: l['時間'], act: l['動作'], branch: l['分院'], group: l['組別'],
+                 name: l['姓名'], no: l['編號'], detail: l['內容'], by: l['經手'] };
+      });
+      logsLoaded = true;
+    })
+    .catch(function (e) { toast('操作紀錄載入失敗：' + e.message, true); })
+    .finally(function () { logsLoading = false; renderLogs(); });
+}
+
 function renderLogs() {
+  if (!logsLoaded) {
+    $('#logList').innerHTML = '<div class="empty">' + (logsLoading ? '載入中…' : '切到這一頁就會自動載入') + '</div>';
+    return;
+  }
   $('#logList').innerHTML = state.logs.length
     ? '<div class="list">' + state.logs.map(function (l) {
       return '<div class="item"><span class="tag">' + esc(l.act) + '</span>' +
@@ -1809,6 +1847,7 @@ document.addEventListener('change', function (e) {
 });
 
 function showPage(name) {
+  if (name === 'logs') ensureLogs();
   $$('nav.tabs button').forEach(function (x) { x.setAttribute('aria-selected', x.dataset.page === name); });
   $$('section.page').forEach(function (p) { p.classList.toggle('on', p.id === 'page-' + name); });
   window.scrollTo(0, 0);
@@ -1917,7 +1956,13 @@ on('#btnDiscard', 'click', function () {
 window.addEventListener('beforeunload', function (e) {
   if (pendingCount()) { e.preventDefault(); e.returnValue = ''; }
 });
-on('#btnReload', 'click', function () { load(true).then(function () { toast('已更新'); }).catch(function (e) { toast(e.message, true); }); });
+on('#btnReload', 'click', function () {
+  var onLogs = $('section.page.on') && $('section.page.on').id === 'page-logs';
+  load(true)
+    .then(function () { return onLogs ? ensureLogs(true) : null; })
+    .then(function () { toast('已更新'); })
+    .catch(function (e) { toast(e.message, true); });
+});
 on('#btnAddGroup', 'click', function () { editGroup(null); });
 on('#btnNewEvent', 'click', newEventDialog);
 on('#btnXls', 'click', function () { exportExcel('xls'); });
@@ -2019,8 +2064,22 @@ on('#gateForm', 'submit', function (e) {
   var v = cleanPw(raw);
   if (!v) return;
   $('#gateBtn').disabled = true;
-  gateMsg(raw !== v ? '核對中…（已自動去掉前後空白）' : '核對中…');
   pw = v;
+
+  // Google 的伺服器有時要十幾二十秒才回。沒有回饋的話現場會以為當掉而一直重按，
+  // 反而讓後端更塞。這裡把等了幾秒顯示出來，並明講不要重複點。
+  var t0 = Date.now();
+  var trimmed = raw !== v ? '（已自動去掉前後空白）' : '';
+  var tick = setInterval(function () {
+    var sec = Math.round((Date.now() - t0) / 1000);
+    gateMsg(sec < 8
+      ? '核對中…' + trimmed
+      : (sec < 25
+          ? '核對中…已等 ' + sec + ' 秒，伺服器比較慢，請不要重複點'
+          : '還在重試…已等 ' + sec + ' 秒。連線不穩時會自動多試幾次，請再等一下'));
+  }, 1000);
+  gateMsg('核對中…' + trimmed);
+
   load()
     .then(function () {
       // 進畫面的過程就算出錯，也絕不能把密碼清掉（否則會變成「看起來已登入、一存檔說密碼不正確」）
@@ -2031,6 +2090,7 @@ on('#gateForm', 'submit', function (e) {
       gateMsg(err.message, 'var(--danger)');
     })
     .finally(function () {
+      clearInterval(tick);
       var btn = $('#gateBtn'), inp = $('#pw');
       if (btn) btn.disabled = false;
       if (inp) inp.value = '';
