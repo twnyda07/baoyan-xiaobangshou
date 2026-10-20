@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020h';
+var BUILD = '20261020i';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -518,7 +518,13 @@ function doCheckout(m) {
           // 以後端實際寫進去的編號為準；重送造成的重複由後端判定為成功
           var real = (d && d.member && d.member['小幫手編號']) || no;
           toast(m.name + '　領取 ' + real + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
-          return load(true);
+          // 現場一台接一台，不能每一台都等整份重載。先把結果套上去，背景再同步。
+          m.no = real;
+          m.outAt = (d && d.member && d.member['領取時間']) || now19();
+          m.outBy = operator; m.inAt = ''; m.inBy = ''; m.missing = '';
+          markDeviceLocal(m.group.branch, real, '借出', m.id);
+          renderAll();
+          refreshSoon();
         })
         .finally(function () { writing = false; });
     });
@@ -556,7 +562,11 @@ function doReturn(m) {
       return api('return', { memberId: m.id, missing: r.missing })
         .then(function (d) {
           toast(m.name + '　已歸還' + (d && d.repeat ? '（這筆剛才已經記成功了）' : ''));
-          return load(true);
+          m.inAt = (d && d.member && d.member['歸還時間']) || now19();
+          m.inBy = operator; m.missing = r.missing || '';
+          markDeviceLocal(m.group.branch, m.no, '可用', '');
+          renderAll();
+          refreshSoon();
         })
         .finally(function () { writing = false; });
     });
@@ -573,7 +583,13 @@ function doUndo(m, what) {
         writing = true;
         toastWait(label + '中…');
         return api('undo', { memberId: m.id, what: what })
-          .then(function () { toast('已' + label); return load(true); })
+          .then(function () {
+            toast('已' + label);
+            if (what === 'return') { m.inAt = ''; m.inBy = ''; m.missing = ''; markDeviceLocal(m.group.branch, m.no, '借出', m.id); }
+            else { markDeviceLocal(m.group.branch, m.no, '可用', ''); m.outAt = ''; m.outBy = ''; m.no = ''; }
+            renderAll();
+            refreshSoon();
+          })
           .finally(function () { writing = false; });
       });
     })
@@ -656,8 +672,8 @@ function addMember(g) {
     ],
   }).then(function (r) {
     if (!r) return;
-    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days })
-      .then(function () { toast('已新增 ' + r.name); return load(true); });
+    return api('addMember', { groupId: g.id, name: r.name, phone: r.phone, '領用日期': r.days }, 0)
+      .then(function () { toast('已新增 ' + r.name); refreshSoon(); });
   }).catch(function (e) { toast(e.message, true); });
 }
 
@@ -715,7 +731,10 @@ function editGroup(g) {
     }
     // 新增組別不自動重送（重送會建出重複的組）；改既有的組是冪等的，維持預設重試
     return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r), isNew ? 0 : undefined)
-      .then(function () { toast(isNew ? '已新增' : '已儲存'); return load(true); })
+      .then(function (d) {
+        toast(isNew ? '已新增「' + (d.group && d.group['組別']) + '」' : '已儲存');
+        refreshSoon();          // 背景同步，不讓人等
+      })
       .catch(function (e) {
         if (e.code === 'DUP_GROUP') { toast(e.message + '，沒有重複建立', true); return load(true); }
         throw e;
@@ -1172,11 +1191,58 @@ function saveAllDays() {
             toast(held.join('、') + ' 手上的小幫手還沒歸還，先留在名單上', true);
           }, 2600);
         }
-        return load(true);
+        // 已知的結果先套到畫面上，不要讓人乾等整份重載
+        var removed = {};
+        (r['已移除'] || []).forEach(function (nm) { removed[nm] = 1; });
+        items.forEach(function (it) {
+          var m = byId(it.memberId);
+          if (m) m.days = String(it['領用日期'] || '').split(',').filter(Boolean);
+        });
+        groupItems.forEach(function (gi) {
+          var g = state.gById[gi.groupId];
+          if (!g) return;
+          if (gi['數量'] != null) g.qty = parseInt(gi['數量'], 10) || 0;
+          if (gi['借用分院'] != null) g.branch = gi['借用分院'];
+        });
+        if (del) state.members = state.members.filter(function (m) { return !removed[m.name]; });
+        renderAll();
+        refreshSoon();
       })
       .catch(function (e) { toast(e.message, true); paintSaveBar(); })
       .finally(function () { var b = $('#btnSaveAll'); if (b) b.disabled = false; });
   });
+}
+
+/** 直接刪一整組。有人在名單上會先問清楚，有人沒歸還則擋下。 */
+function deleteGroupFlow(g) {
+  if (!g) return;
+  var ms = membersOf(g.id);
+  var out = ms.filter(function (m) { return statusOf(m) === 'out'; });
+  if (out.length) {
+    toast(g.name + ' 還有 ' + out.length + ' 台沒歸還，不能刪除', true);
+    return;
+  }
+  confirmBox('刪除組別',
+    '要刪掉「' + g.name + '」（' + (g.branch || '未指定分院') + '）嗎？' +
+    (ms.length ? '\n\n這一組底下還有 ' + ms.length + ' 位：\n' +
+      ms.slice(0, 12).map(function (m) { return '· ' + m.name; }).join('\n') +
+      (ms.length > 12 ? '\n…共 ' + ms.length + ' 位' : '') +
+      '\n\n刪掉組別，這些人也會一起從名單移除。' : '\n\n這一組底下沒有人。'),
+    '刪除', 'danger')
+    .then(function (yes) {
+      if (!yes) return;
+      return api('deleteGroup', { groupId: g.id, force: true })
+        .then(function () {
+          toast('已刪除「' + g.name + '」');
+          // 先從畫面拿掉，不要等整份重載
+          state.groups = state.groups.filter(function (x) { return x.id !== g.id; });
+          state.members = state.members.filter(function (m) { return m.groupId !== g.id; });
+          delete state.gById[g.id];
+          renderAll();
+          refreshSoon();
+        });
+    })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
 /** 組別摘要文字：分區、組長、申請數量 vs 名單人數 */
@@ -1234,7 +1300,8 @@ function renderRoster() {
       '<div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line-soft)">' +
       (readOnly() ? '' :
         '<button class="btn sm" data-act="add-member" data-gid="' + g.id + '">＋ 新增人員</button>' +
-        '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>') +
+        '<button class="btn sm ghost" data-act="edit-group" data-gid="' + g.id + '">修改組別資料</button>' +
+        '<button class="btn sm danger" data-act="del-group" data-gid="' + g.id + '">刪除這組</button>') +
       '<span class="hint" style="margin-left:auto;align-self:center">借用項目：' + esc(g.items || '—') + '</span>' +
       '</div></div></details>';
   }).join('') : '<div class="empty">沒有符合的組別</div>';
@@ -1366,6 +1433,29 @@ function switchViewTo(id) {
   return confirmBox('還有沒存的改動',
     '有 ' + dirty + ' 筆改動還沒儲存。換去看別場活動會把這些改動丟掉。',
     '丟掉並切換', 'danger').then(function (yes) { return yes ? go() : null; });
+}
+
+/**
+ * 存完不要再讓人等一次整份重載。
+ * 先把畫面更新成已知的結果，背景再去同步一次（同步失敗也不影響當下操作）。
+ */
+/** 後端的時間字串格式（本機時區），用在樂觀更新時先填上 */
+function now19() {
+  var d = new Date(), p = function (x) { return x < 10 ? '0' + x : '' + x; };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+         p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
+/** 機台狀態也先在本機更新，下一個人的編號選單才會正確 */
+function markDeviceLocal(branch, no, status, memberId) {
+  if (!branch || !no) return;
+  var d = state.devices.filter(function (x) { return x.branch === branch && x.no === no; })[0];
+  if (d) { d.status = status; d.memberId = memberId || ''; }
+  else state.devices.push({ branch: branch, no: no, status: status, memberId: memberId || '', note: '領取時現場新增' });
+}
+
+function refreshSoon() {
+  setTimeout(function () { load(true).catch(function () {}); }, 50);
 }
 
 function renderAll() {
@@ -2014,6 +2104,7 @@ document.addEventListener('click', function (e) {
   else if (act === 'edit') editMember(byId(b.dataset.id));
   else if (act === 'add-member') addMember(state.gById[b.dataset.gid]);
   else if (act === 'edit-group') editGroup(state.gById[b.dataset.gid]);
+  else if (act === 'del-group') deleteGroupFlow(state.gById[b.dataset.gid]);
   else if (act === 'dev') deviceDialog(b.dataset.branch, b.dataset.no);
   else if (act === 'add-dev') addDeviceDialog(b.dataset.branch);
   else if (act === 'reset-dev') resetDevices(b.dataset.branch);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>小幫手借用系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261020h">
+<link rel="stylesheet" href="style.css?v=20261020i">
 </head>
 <body>
 
@@ -133,9 +133,9 @@
     <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <select class="box" id="rBranch" style="width:auto;min-width:130px"><option value="">全部分院</option></select>
       <input class="box" id="rQ" type="search" placeholder="找組別或姓名" style="width:auto;flex:1;min-width:160px" autocomplete="off">
-      <button class="btn sm" id="btnAddGroup">＋ 新增組別</button>
+      <button class="btn sm ok" id="btnAddGroup">＋ 新增組別</button>
     </div>
-    <p class="hint" id="rosterHint" style="margin:0 0 12px">右上角的「申請 N 組」是那一組申請的總量，可以直接改；日期直接在下面點。兩種都可以一路改完整份名單，最後按一次「儲存變更」。姓名、電話、編號、刪除人員請按該列的 ✎。</p>
+    <p class="hint" id="rosterHint" style="margin:0 0 12px">每一組標題上的<b>分院</b>與<b>申請 N 組</b>可以直接改，日期直接在下面點——整份改完按一次「儲存變更」就好。姓名、電話、編號、刪除人員按該列的 ✎；<b>新增／刪除整組</b>用上面的「＋ 新增組別」與每一組底下的「刪除這組」。</p>
     <div id="rosterList"></div>
     <div id="rosterSave" class="savebar" hidden>
       <span id="rosterSaveMsg"></span>
@@ -209,7 +209,7 @@
 <div id="toast"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="config.js?v=20261020h"></script>
-<script src="app.js?v=20261020h"></script>
+<script src="config.js?v=20261020i"></script>
+<script src="app.js?v=20261020i"></script>
 </body>
 </html>
