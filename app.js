@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020g';
+var BUILD = '20261020h';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -84,8 +84,15 @@ function api(action, payload, tries) {
   });
 }
 
-/** 重送會多建一筆的動作，不自動重試 */
-var NO_RETRY = { addMember: 1, createEvent: 1 };
+/**
+ * 會「多建一筆」的動作一律不自動重送。
+ * Google 偶爾回一頁 HTML 中繼頁，但 Apps Script 其實已經寫進去了；
+ * 這時候重送就會建出第二筆（實際發生過：同一個「事務組」被建了三次）。
+ * 寧可讓人自己按 ↻ 確認，也不要默默多寫一筆。
+ */
+var NO_RETRY = { addMember: 1, createEvent: 1, addDevice: 1 };
+/** 唯讀動作：失敗訊息可以直接叫人重按；寫入就不行（可能已經寫進去了） */
+var READ_ONLY_ACTIONS = { load: 1, ping: 1, loadLogs: 1 };
 
 function rawApi(action, payload, tries) {
   var url = backendUrl();
@@ -142,7 +149,11 @@ function rawApi(action, payload, tries) {
         return new Promise(function (res) { setTimeout(res, waitMs); })
           .then(function () { return rawApi(action, payload, tries - 1); });
       }
-      if (retryable) e.message = '連不上系統（網路不穩或剛好在更新），等十秒再按一次';
+      if (retryable) {
+        e.message = READ_ONLY_ACTIONS[action]
+          ? '連不上系統（網路不穩或剛好在更新），等十秒再按一次'
+          : '連線不穩，這一筆不確定有沒有存進去。請先按右上角 ↻ 更新看一下，不要直接重按';
+      }
       throw e;
     });
 }
@@ -702,7 +713,13 @@ function editGroup(g) {
         return api('deleteGroup', { groupId: g.id, force: true }).then(function () { toast('已刪除'); return load(true); });
       });
     }
-    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r)).then(function () { toast('已儲存'); return load(true); });
+    // 新增組別不自動重送（重送會建出重複的組）；改既有的組是冪等的，維持預設重試
+    return api('saveGroup', Object.assign({ groupId: isNew ? '' : g.id }, r), isNew ? 0 : undefined)
+      .then(function () { toast(isNew ? '已新增' : '已儲存'); return load(true); })
+      .catch(function (e) {
+        if (e.code === 'DUP_GROUP') { toast(e.message + '，沒有重複建立', true); return load(true); }
+        throw e;
+      });
   }).catch(function (e) { toast(e.message, true); });
 }
 
