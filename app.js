@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261020k';
+var BUILD = '20261020m';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -1477,8 +1477,21 @@ function markDeviceLocal(branch, no, status, memberId) {
   else state.devices.push({ branch: branch, no: no, status: status, memberId: memberId || '', note: '領取時現場新增' });
 }
 
-function refreshSoon() {
-  setTimeout(function () { load(true).catch(function () {}); }, 50);
+/**
+ * 存完不要再讓人等一次整份重載——畫面已經用已知結果更新過了。
+ *
+ * 這裡**刻意延後並合併**：每個寫入後面都緊跟一次完整載入的話，請求量直接變兩倍。
+ * 現場十幾個人同時登記時那是壓垮後端的主因（實測 Google 已有約三分之一的請求被擋）。
+ * 連續操作只會換來一次同步，其餘交給 75 秒的自動更新。
+ */
+var refreshTimer = null;
+function refreshSoon(ms) {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(function () {
+    refreshTimer = null;
+    if (writing) { refreshSoon(8000); return; }   // 還在寫就別插隊
+    load(true).catch(function () {});
+  }, ms == null ? 20000 : ms);
 }
 
 function renderAll() {
