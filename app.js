@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261021a';
+var BUILD = '20261022a';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -810,7 +810,13 @@ function rosterRow(m) {
     (m.phone ? '<span class="meta">' + esc(m.phone) + '</span>' : '') +
     '</div>' +
     rosterDayStrip(m) +
-    (readOnly() ? '' : '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或刪除">✎</button>') +
+    // 修改與刪除都直接放在這一列上。刪除以前藏在 ✎ 對話框裡兩層深，現場要刪一個人很難找。
+    // 用 .acts 包起來（窄螢幕那套 44px 與 icon 鈕的規則本來就綁在 .acts 上）。
+    (readOnly() ? '' :
+      '<span class="acts">' +
+      '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="改姓名、電話、編號或日期">✎</button>' +
+      '<button class="btn sm ghost danger" data-act="del-member" data-id="' + m.id + '" title="把 ' + esc(m.name) + ' 從名單刪掉">✕</button>' +
+      '</span>') +
     '</div>';
 }
 
@@ -1244,6 +1250,37 @@ function saveAllDays() {
 }
 
 /** 直接刪一整組。有人在名單上會先問清楚，有人沒歸還則擋下。 */
+/**
+ * 直接從名單那一列刪一個人。
+ * 跟 deleteGroupFlow 同一套：先在本機擋掉刪不掉的情況（手上還有機台），
+ * 不要讓人等 1.4～4.4 秒才換來一句後端的錯誤；後端那道檢查仍然保留，這裡只是提早講。
+ * 刪掉之後先從畫面拿掉再背景同步，不讓人盯著轉圈。
+ */
+function deleteMemberFlow(m) {
+  if (!m) return;
+  if (statusOf(m) === 'out') {
+    toast(m.name + ' 手上的小幫手（' + (m.no || '未填編號') + '）還沒歸還，要先收回來才能刪', true);
+    return;
+  }
+  confirmBox('刪除人員',
+    '要把「' + m.name + '」從 ' + m.group.name + ' 的名單刪掉嗎？' +
+    (m.phone ? '\n電話 ' + m.phone : '') +
+    (statusOf(m) === 'back' ? '\n\n（這個人這一輪已經借過並還回來了，刪掉之後那筆領用紀錄仍然留在操作紀錄裡。）' : ''),
+    '刪除', 'danger')
+    .then(function (yes) {
+      if (!yes) return;
+      return api('deleteMember', { memberId: m.id })
+        .then(function () {
+          toast('已刪除 ' + m.name);
+          // 先從畫面拿掉，不要等整份重載（跟刪除組別一致）
+          state.members = state.members.filter(function (x) { return x.id !== m.id; });
+          renderAll();
+          refreshSoon();
+        });
+    })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
 function deleteGroupFlow(g) {
   if (!g) return;
   var ms = membersOf(g.id);
@@ -2173,6 +2210,7 @@ document.addEventListener('click', function (e) {
   else if (act === 'undo-out') doUndo(byId(b.dataset.id), 'checkout');
   else if (act === 'undo-in') doUndo(byId(b.dataset.id), 'return');
   else if (act === 'edit') editMember(byId(b.dataset.id));
+  else if (act === 'del-member') deleteMemberFlow(byId(b.dataset.id));
   else if (act === 'add-member') addMember(state.gById[b.dataset.gid]);
   else if (act === 'edit-group') editGroup(state.gById[b.dataset.gid]);
   else if (act === 'del-group') deleteGroupFlow(state.gById[b.dataset.gid]);

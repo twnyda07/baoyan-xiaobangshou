@@ -159,6 +159,7 @@ table.daytab tr:last-child td { border-bottom: none; }
 /* 名單管理：整列可點的日期條 */
 .item.rost { align-items: center; gap: 10px; }
 .rost-l { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 150px; flex: 1; }
+.item.rost .acts { margin-left: 0; }   /* 名單列：修改與刪除兩顆並排，不要被推到最右邊 */
 .daystrip { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; padding: 3px; border-radius: 10px; }
 .daystrip.changed { background: var(--warn-soft); outline: 1px solid #e5d5ae; }
 .daystrip.empty { background: var(--danger-soft); outline: 1px solid #e0c6c1; }
@@ -322,12 +323,14 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
 
   /* 手指按得到：44px 是最小安全值，站著單手按更需要 */
   .item .acts .btn { min-height: 44px; min-width: 54px; font-size: .92rem; padding: 6px 12px; border-radius: 9px; }
-  .item.rost > .btn { min-height: 40px; min-width: 40px; }
+  .item.rost .acts .btn { min-height: 44px; min-width: 44px; padding: 6px 8px; }
   /* 其餘種類的列在窄螢幕要能換行，按鈕才不會被擠出去 */
   .item:not(.has-main):not(.rost) { flex-wrap: wrap; row-gap: 8px; }
   .item:not(.has-main) .acts, .item:not(.has-main) > span:last-child { margin-left: auto; }
   .item .acts .btn.ghost { min-width: 44px; padding: 6px 6px; font-size: 1rem; }
   .btn.sm { padding: 8px 12px; font-size: .88rem; }
+  /* 名單管理的新增／刪除是站著單手在按的，量過原本只有 42px，補到 44px */
+  #btnAddGroup, .grp-body .btn.sm { min-height: 44px; }
   nav.tabs button { padding: 9px 11px; min-height: 44px; }
 
   /* 對話框：按鈕要大、要分得開，現場誤觸的代價很高 */
@@ -362,8 +365,8 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   nav.tabs button { font-size: .9rem; }
 
   .item.rost { position: relative; padding: 10px 14px 12px; }
-  .rost-l { flex: 1 1 100%; padding-right: 44px; }
-  .item.rost > .btn { position: absolute; top: 8px; right: 12px; }
+  .rost-l { flex: 1 1 100%; padding-right: 102px; }   /* 右上角兩顆 44px 鈕 ＋ 間距 */
+  .item.rost > .acts { position: absolute; top: 8px; right: 12px; }
   select.brsel { min-height: 40px; font-size: .9rem; padding: 6px 8px; }
   .daystrip { width: 100%; margin-left: 0; gap: 3px; }
   .dayb { flex: 1 1 0; min-width: 0; padding: 10px 0; font-size: .82rem; }
