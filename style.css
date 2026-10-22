@@ -333,7 +333,8 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   .item .acts .btn.ghost { min-width: 44px; padding: 6px 6px; font-size: 1rem; }
   .btn.sm { padding: 8px 12px; font-size: .88rem; }
   /* 名單管理的新增／刪除是站著單手在按的，量過原本只有 42px，補到 44px */
-  #btnAddGroup, #btnCAddMember, #btnCAddGroup, #btnCDelGroup, .grp-body .btn.sm { min-height: 44px; }
+  #btnAddGroup, #btnRAddMember, #btnRDelMember,
+  #btnCAddMember, #btnCAddGroup, #btnCDelGroup, .grp-body .btn.sm { min-height: 44px; }
   nav.tabs button { padding: 9px 11px; min-height: 44px; }
 
   /* 對話框：按鈕要大、要分得開，現場誤觸的代價很高 */

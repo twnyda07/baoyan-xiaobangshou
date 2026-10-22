@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261022b';
+var BUILD = '20261022c';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -111,8 +111,10 @@ function rawApi(action, payload, tries) {
 
   // 每次請求都有上限，網路卡住時不會無止境地等下去
   var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-  // 必須大於後端 LockService.waitLock(25000)，否則排隊中就被自己中斷、重送造成重複寫入
-  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 30000) : null;
+  // 必須大於「後端等鎖的 25 秒 ＋ 寫入本身的時間」。
+  // 原本是 30000，但現場十幾個人同時送時，等鎖 24 秒＋寫入 5 秒就剛好踩線，
+  // 等於在快要成功的前一刻把自己掐斷，然後再重送一次，反而更塞。
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 40000) : null;
 
   return fetch(url, {
     method: 'POST',
@@ -151,7 +153,15 @@ function rawApi(action, payload, tries) {
       if (e && e.name === 'AbortError') { e = new Error('連線逾時'); e.retryable = true; }
       var retryable = e.retryable || /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
       if (tries > 0 && retryable) {
-        var waitMs = 700 * (5 - tries);
+        // 現場十幾支手機同時送出時，大家會在同一瞬間收到 BUSY 或中繼頁。
+        // 原本是固定的 700／1400／2100ms——所有人「一起」等、再「一起」重送，
+        // 每一輪都整齊地撞在一起，等於把塞車變成節拍一致的雪崩。
+        // 改成指數退避＋±50% 隨機抖動，把這些手機散開到不同時間點。
+        // BUSY 要等更久：它代表後端連等 25 秒的鎖都沒拿到，後面排的人還很多，
+        // 700ms 後再敲一次只是多添一筆負擔。
+        var attempt = 5 - tries;                                  // 1、2、3、4
+        var base = (e && e.code === 'BUSY' ? 2000 : 700) * Math.pow(2, attempt - 1);
+        var waitMs = Math.min(Math.round(base * (0.5 + Math.random())), 12000);
         return new Promise(function (res) { setTimeout(res, waitMs); })
           .then(function () { return rawApi(action, payload, tries - 1); });
       }
@@ -1269,19 +1279,19 @@ function saveAllDays() {
  * 所以拿上面那個「組別」篩選當上下文：已經選了組就直接加進那一組，
  * 沒選就先問要加到哪一組（只列目前分院篩選範圍內的組，免得滑一長串）。
  */
-function addMemberPick() {
-  var gid = ($('#fGroup') || {}).value || '';
-  if (gid && state.gById[gid]) return addMember(state.gById[gid]);
-  var br = ($('#fBranch') || {}).value || '';
-  var gs = state.groups.filter(function (g) { return !br || g.branch === br; })
+function pickGroup(branch, title, hint) {
+  var gs = state.groups.filter(function (g) { return !branch || g.branch === branch; })
     .sort(function (x, y) {
       if (x.zone !== y.zone) return (x.zone || '') < (y.zone || '') ? -1 : 1;
       return (parseInt(x.seq, 10) || 0) - (parseInt(y.seq, 10) || 0);
     });
-  if (!gs.length) { toast('這個分院底下還沒有組別，先按「＋ 新增組別」', true); return; }
-  dialog({
-    title: '要加到哪一組？',
-    body: '<p class="hint" style="margin:0 0 10px">選好之後才填姓名。也可以先用上面的「組別」篩選選定，之後按「＋ 新增人員」就會直接加到那一組。</p>' +
+  if (!gs.length) {
+    toast((branch ? branch + ' 底下' : '') + '還沒有組別，先按「＋ 新增組別」', true);
+    return Promise.resolve(null);
+  }
+  return dialog({
+    title: title,
+    body: (hint ? '<p class="hint" style="margin:0 0 10px">' + hint + '</p>' : '') +
       '<label class="field"><span>組別</span><select class="box" id="pickG">' +
       gs.map(function (g) {
         return '<option value="' + esc(g.id) + '">' + esc(g.name) + '（' + esc(g.branch || '未指定') + '　' + membersOf(g.id).length + ' 人）</option>';
@@ -1290,9 +1300,58 @@ function addMemberPick() {
       { label: '取消', value: null },
       { label: '下一步', cls: 'primary', collect: function (b) { return $('#pickG', b).value; } },
     ],
-  }).then(function (id) {
-    if (id && state.gById[id]) addMember(state.gById[id]);
-  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+  }).then(function (id) { return (id && state.gById[id]) || null; });
+}
+
+/** 領取／歸還頁的「＋ 新增人員」：上面已經選定組別就直接用，沒選才問。 */
+function addMemberPick() {
+  var gid = ($('#fGroup') || {}).value || '';
+  if (gid && state.gById[gid]) return addMember(state.gById[gid]);
+  return pickGroup(($('#fBranch') || {}).value || '', '要加到哪一組？',
+    '選好之後才填姓名。也可以先用上面的「組別」篩選選定，之後按「＋ 新增人員」就會直接加到那一組。')
+    .then(function (g) { if (g) addMember(g); })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
+/** 名單管理頁的「＋ 新增人員」：這一頁沒有組別篩選，一律先問要加到哪一組。 */
+function addMemberFromRoster() {
+  return pickGroup(($('#rBranch') || {}).value || '', '要加到哪一組？', '選好組別之後才填姓名。')
+    .then(function (g) { if (g) addMember(g); })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
+/** 名單管理頁的「刪除人員」：先選組別，再從那一組挑人，最後才真的確認。 */
+function deleteMemberFromRoster() {
+  return pickGroup(($('#rBranch') || {}).value || '', '要刪掉哪一組裡的人？', '先選組別，下一步才挑人。')
+    .then(function (g) {
+      if (!g) return;
+      var ms = membersOf(g.id);
+      if (!ms.length) { toast('「' + g.name + '」底下還沒有人', true); return; }
+      var free = ms.filter(function (m) { return statusOf(m) !== 'out'; });
+      if (!free.length) {
+        toast('「' + g.name + '」裡每一位手上都還有小幫手沒還，要先收回來才能刪', true);
+        return;
+      }
+      return dialog({
+        title: '要刪掉哪一位？',
+        body: '<p class="hint" style="margin:0 0 10px">' + esc(g.name) + ' 目前 ' + ms.length + ' 位。' +
+          '手上還有小幫手沒還的人不會出現在這裡，要先收回來。</p>' +
+          '<label class="field"><span>姓名</span><select class="box" id="pickM">' +
+          free.map(function (m) {
+            return '<option value="' + esc(m.id) + '">' + esc(m.name) +
+              (m.no ? '（' + esc(m.no) + '）' : '') +
+              (statusOf(m) === 'back' ? ' — 已歸還' : '') + '</option>';
+          }).join('') + '</select></label>',
+        buttons: [
+          { label: '取消', value: null },
+          { label: '下一步', cls: 'danger', collect: function (b) { return $('#pickM', b).value; } },
+        ],
+      }).then(function (id) {
+        var m = id && byId(id);
+        if (m) deleteMemberFlow(m);     // 這一步自己還會再確認一次，也會擋手上有機台的人
+      });
+    })
+    .catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
 }
 
 function deleteMemberFlow(m) {
@@ -1530,6 +1589,8 @@ function paintWriteButtons() {
   var ro = readOnly();
   var ag = $('#btnAddGroup');
   if (ag) ag.hidden = ro;
+  var ra = $('#btnRAddMember'); if (ra) ra.hidden = ro;
+  var rd = $('#btnRDelMember'); if (rd) rd.hidden = ro;
   // 領取／歸還那一頁上的三顆。訪客與已關閉的活動一律不給，
   // 「刪除這組」還要再多一個條件：上面確實選定了某一組，否則不知道要刪誰。
   var gid = ($('#fGroup') || {}).value || '';
@@ -2423,6 +2484,8 @@ on('#btnReload', 'click', function () {
     .catch(function (e) { toast(e.message, true); });
 });
 on('#btnAddGroup', 'click', function () { editGroup(null); });
+on('#btnRAddMember', 'click', function () { addMemberFromRoster(); });
+on('#btnRDelMember', 'click', function () { deleteMemberFromRoster(); });
 on('#btnCAddGroup', 'click', function () { editGroup(null); });
 on('#btnCAddMember', 'click', function () { addMemberPick(); });
 on('#btnCDelGroup', 'click', function () {
