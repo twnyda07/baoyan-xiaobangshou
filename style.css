@@ -305,7 +305,10 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
 
   /* 兩個下拉並排，不要各佔一行；筆數縮到旁邊 */
   #counterFilters { padding: 10px 12px; }
-  #counterFilters select { flex: 1 1 0; min-width: 0 !important; min-height: 46px; }
+  /* 兩個下拉要讀得出選了什麼（原本 min-width:0 是因為那一排只有它們兩個，
+     現在旁邊多了新增／刪除鈕，再讓它們縮就只剩「全∨」看不懂了）。
+     給 130px 保底，按鈕自己換到下一行去。 */
+  #counterFilters select { flex: 1 1 130px; min-width: 120px !important; min-height: 46px; }
   #counterFilters #qCount { flex: 0 0 auto; margin-left: 6px !important; font-size: .78rem; }
 
   /* 名單列固定成兩行：第一行姓名＋編號＋狀態，第二行組別分院等細節。
@@ -330,7 +333,7 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   .item .acts .btn.ghost { min-width: 44px; padding: 6px 6px; font-size: 1rem; }
   .btn.sm { padding: 8px 12px; font-size: .88rem; }
   /* 名單管理的新增／刪除是站著單手在按的，量過原本只有 42px，補到 44px */
-  #btnAddGroup, .grp-body .btn.sm { min-height: 44px; }
+  #btnAddGroup, #btnCAddMember, #btnCAddGroup, #btnCDelGroup, .grp-body .btn.sm { min-height: 44px; }
   nav.tabs button { padding: 9px 11px; min-height: 44px; }
 
   /* 對話框：按鈕要大、要分得開，現場誤觸的代價很高 */

@@ -21,7 +21,7 @@ var esc = function (s) {
   });
 };
 
-var BUILD = '20261022a';
+var BUILD = '20261022b';
 var BRANCHES = ['善覺', '善學', '圓道'];
 
 /** 密碼比對前先去掉前後空白（含全形空白）：手機鍵盤很容易多打一個 */
@@ -769,6 +769,11 @@ function memberRow(m, opts) {
   else acts = '<button class="btn sm ok" data-act="out" data-id="' + m.id + '">再領取</button>' +
     '<button class="btn sm ghost" data-act="undo-in" data-id="' + m.id + '" title="取消歸還">↩</button>';
   if (adminOn) acts += '<button class="btn sm ghost" data-act="edit" data-id="' + m.id + '" title="修改">✎</button>';
+  // 刪除也放在這一列上——這一頁才是執事整天在看的那一頁，不該要他先進後台才找得到。
+  // 借出中的人本來就刪不掉（後端也擋），所以那一列乾脆不擺這顆：少一個誤按的機會，
+  // 而且 歸還＋↩ 已經佔掉位置了。
+  if (s !== 'out') acts += '<button class="btn sm ghost danger" data-act="del-member" data-id="' + m.id +
+    '" title="把 ' + esc(m.name) + ' 從名單刪掉">✕</button>';
 
   var meta = [];
   if (opts.showGroup) meta.push(m.group.name);
@@ -924,6 +929,8 @@ function renderCounter() {
     $('#counterList').innerHTML =
       '<div class="list">' + rows.map(function (m) { return memberRow(m, { showGroup: true }); }).join('') + '</div>';
   }
+  // 「刪除這組」要跟著上面的組別篩選變，而篩選一換就只會跑到這裡（不會走 renderAll）
+  paintWriteButtons();
 }
 
 /** 總覽的「看分院／看機台」切換 */
@@ -1256,6 +1263,38 @@ function saveAllDays() {
  * 不要讓人等 1.4～4.4 秒才換來一句後端的錯誤；後端那道檢查仍然保留，這裡只是提早講。
  * 刪掉之後先從畫面拿掉再背景同步，不讓人盯著轉圈。
  */
+/**
+ * 領取／歸還那一頁的「＋ 新增人員」。
+ * 這一頁對工作人員是一條平的清單，沒有組別標題可以掛按鈕，
+ * 所以拿上面那個「組別」篩選當上下文：已經選了組就直接加進那一組，
+ * 沒選就先問要加到哪一組（只列目前分院篩選範圍內的組，免得滑一長串）。
+ */
+function addMemberPick() {
+  var gid = ($('#fGroup') || {}).value || '';
+  if (gid && state.gById[gid]) return addMember(state.gById[gid]);
+  var br = ($('#fBranch') || {}).value || '';
+  var gs = state.groups.filter(function (g) { return !br || g.branch === br; })
+    .sort(function (x, y) {
+      if (x.zone !== y.zone) return (x.zone || '') < (y.zone || '') ? -1 : 1;
+      return (parseInt(x.seq, 10) || 0) - (parseInt(y.seq, 10) || 0);
+    });
+  if (!gs.length) { toast('這個分院底下還沒有組別，先按「＋ 新增組別」', true); return; }
+  dialog({
+    title: '要加到哪一組？',
+    body: '<p class="hint" style="margin:0 0 10px">選好之後才填姓名。也可以先用上面的「組別」篩選選定，之後按「＋ 新增人員」就會直接加到那一組。</p>' +
+      '<label class="field"><span>組別</span><select class="box" id="pickG">' +
+      gs.map(function (g) {
+        return '<option value="' + esc(g.id) + '">' + esc(g.name) + '（' + esc(g.branch || '未指定') + '　' + membersOf(g.id).length + ' 人）</option>';
+      }).join('') + '</select></label>',
+    buttons: [
+      { label: '取消', value: null },
+      { label: '下一步', cls: 'primary', collect: function (b) { return $('#pickG', b).value; } },
+    ],
+  }).then(function (id) {
+    if (id && state.gById[id]) addMember(state.gById[id]);
+  }).catch(function (e) { if (e && e.message !== '已取消') toast(e.message, true); });
+}
+
 function deleteMemberFlow(m) {
   if (!m) return;
   if (statusOf(m) === 'out') {
@@ -1491,6 +1530,17 @@ function paintWriteButtons() {
   var ro = readOnly();
   var ag = $('#btnAddGroup');
   if (ag) ag.hidden = ro;
+  // 領取／歸還那一頁上的三顆。訪客與已關閉的活動一律不給，
+  // 「刪除這組」還要再多一個條件：上面確實選定了某一組，否則不知道要刪誰。
+  var gid = ($('#fGroup') || {}).value || '';
+  var am = $('#btnCAddMember'); if (am) am.hidden = ro;
+  var cg = $('#btnCAddGroup');  if (cg) cg.hidden = ro;
+  var dg = $('#btnCDelGroup');
+  if (dg) {
+    var g = gid && state.gById[gid];
+    dg.hidden = ro || !g;
+    if (g) dg.textContent = '刪除「' + g.name + '」';
+  }
 }
 
 /** 換一場活動看的時候，還沒存的改動一定要丟掉——否則會存到別場去 */
@@ -1551,6 +1601,10 @@ function refreshSoon(ms) {
 }
 
 function renderAll() {
+  // 組別下拉也要跟著重算：新增或刪除組別之後，它如果還停在舊的清單上，
+  // 「＋ 新增人員」與「刪除這組」就會拿到一個不存在的組。
+  // （paintGroupFilter 本來就會保留目前選的那一組，選的組沒了才退回「全部組別」。）
+  paintGroupFilter();
   renderEvents(); paintEventBanner(); paintWriteButtons();
   renderCounter(); renderDash(); renderRoster(); renderDevices(); renderLogs(); paintSaveBar();
   var dh = $('#devHint');
@@ -2369,6 +2423,14 @@ on('#btnReload', 'click', function () {
     .catch(function (e) { toast(e.message, true); });
 });
 on('#btnAddGroup', 'click', function () { editGroup(null); });
+on('#btnCAddGroup', 'click', function () { editGroup(null); });
+on('#btnCAddMember', 'click', function () { addMemberPick(); });
+on('#btnCDelGroup', 'click', function () {
+  var gid = ($('#fGroup') || {}).value || '';
+  var g = gid && state.gById[gid];
+  if (!g) { toast('先在上面選定一組', true); return; }
+  deleteGroupFlow(g);
+});
 on('#btnNewEvent', 'click', newEventDialog);
 on('#btnXls', 'click', function () { exportExcel('xls'); });
 on('#btnXlsx', 'click', function () { exportExcel('xlsx'); });
