@@ -398,3 +398,16 @@ dialog .dlg-b { max-height: 68vh; overflow-y: auto; }
   .sheet tr.tot td { background: #f0f0f0; font-weight: 700; }
   .sheet small { font-size: .85em; color: #555; }
 }
+
+/* 本站資訊（寶嚴禪寺所有開發一律附） */
+.siteinfo{margin:30px auto 0; max-width:720px; text-align:left; font-size:16px; line-height:1.85;
+  background:var(--paper-2); border:1px solid var(--line); border-radius:4px; padding:16px 20px; color:inherit;}
+.siteinfo .si-h{color:var(--accent); font-weight:700; letter-spacing:.12em; margin-bottom:6px;}
+.siteinfo dl{display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; margin:0;}
+.siteinfo dt{color:var(--ink-2); white-space:nowrap;}
+.siteinfo dd{margin:0; word-break:break-word;}
+.siteinfo a{color:var(--accent); text-decoration:underline; text-underline-offset:3px; display:inline-block; padding:6px 0; margin:-6px 0;}
+@media(max-width:420px){ .siteinfo dl{grid-template-columns:1fr; gap:0;} .siteinfo dd{margin-bottom:6px;} }
+#gate{align-items:flex-start; overflow-y:auto} #gate .box2{margin:auto}
+#gate .siteinfo{margin-top:18px; padding:12px 14px; font-size:15px; line-height:1.75; max-width:none}
+@media print{ .siteinfo{display:none} }
